@@ -1,24 +1,26 @@
-# MPC Heater Lab
+# Industrial DC Motor Control Lab
 
 <p align="center">
   <img src="assets/mpc-infographic.png" width="920" alt="Model Predictive Control infographic: optimiser, simulation model, and plant feedback loop">
 </p>
 
 <p align="center">
-  <strong>Offset-free MPC vs hand-tuned PID vs optimised PID on a heat-balance heater model.</strong>
+  <strong>Offset-free MPC vs hand-tuned PID vs optimised PID regulating the speed of a permanent-magnet DC motor drive.</strong>
 </p>
 
 <p align="center">
   <a href="#quick-start"><b>Quick start</b></a> ·
   <a href="#interactive-app"><b>Interactive app</b></a> ·
-  <a href="#showcase-video"><b>Video</b></a> ·
+  <a href="#proof-batch-metrics"><b>Proof</b></a> ·
   <a href="docs/EXPLAINER.md"><b>Explainer</b></a> ·
   <a href="docs/THEORY.md"><b>Theory</b></a> ·
   <a href="HOW-IT-WORKS.md"><b>How it works</b></a> ·
   <a href="report/report.md"><b>Report</b></a>
 </p>
 
-Three scripted scenarios, a multipage Streamlit lab (precomputed UI data for fast opens), batch plots under `results/`, and an 82 s showcase video driven by the same simulation JSON as the app.
+A motor speed drive of the kind that turns conveyors, pumps and machine axes: the controller sets the armature voltage, a shared drive enforces voltage, slew and current limits, and a simulated permanent-magnet DC (PMDC) motor responds. Ten reproducible scenarios, a multipage Streamlit lab with precomputed data for fast opens, a 2D shaft replay, and batch results under `results/`.
+
+This repository began as an MPC heater lab. The plant, drive, scenarios, metrics and UI are now the motor; the controllers, comparison framework, scorecard, tests and deployment setup are the same architecture.
 
 ## Quick start
 
@@ -28,7 +30,7 @@ pip install -r requirements.txt
 pip install -e ".[dev]"
 python3 -m pytest -q
 python3 examples/run_simulations.py
-python3 scripts/precompute_ui_data.py
+python3 scripts/precompute_ui_data.py   # also re-tunes and freezes the optimised PID
 streamlit run app.py
 ```
 
@@ -38,128 +40,69 @@ streamlit run app.py
   [file organization](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/file-organization)
   and [app dependencies](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies):
   - **Main file:** `app.py` (repo root; multipage via `st.navigation` + `ui_pages/`).
-  - **Dependencies:** root `requirements.txt` only (no `packages.txt`; no `-e .` —
-    Cloud installs PyPI packages from that file; `app.py` adds `src/` to `sys.path`
-    so `mpc_core` imports resolve).
+  - **Dependencies:** root `requirements.txt` only (no `packages.txt`; no `-e .`).
+    `app.py` adds `src/` to `sys.path` so `mpc_core` imports resolve. No new dependency was added for the motor lab.
   - **Python:** Advanced settings → **3.12** (matches `.python-version`). On 3.13/3.14,
-    Cloud may build numpy/scipy/pandas from source and hang. To change Python after
-    deploy: delete the app and redeploy with 3.12 selected.
-  - After a push that fixes imports, use **Reboot app** (or redeploy) so the new
-    entrypoint and requirements are picked up.
-- **Vercel** — static mirror under `web/` (same charts/presets from precomputed `data/ui`). Streamlit itself does not run on Vercel, so deploy from the `web/` folder (a separate Vercel project that is **not** set to Python):
-
-```bash
-python scripts/sync_web_data.py
-cd web
-vercel --prod
-```
-
-Live static deploy: [web-six-gamma-97x4joejhv.vercel.app](https://web-six-gamma-97x4joejhv.vercel.app/). Do not run `vercel` from the repo root against the Python-linked `model-predictive-control` project — that path still expects an ASGI/`app` export.
+    Cloud may build numpy/scipy/pandas from source and hang.
+  - After a push, use **Reboot app** so the new entrypoint is picked up.
+- **Vercel static mirror (`web/`) and the showcase video (`video/`)** still show the retired heater lab and are **stale**; they were not ported. Regenerating them needs a redesign for the motor scenarios.
 
 ## Interactive app
 
-Theme: `.streamlit/config.toml` (cobalt accent `#2F6FEB`). Regen shots with the app running: `python scripts/capture_streamlit_screenshots.py`.
+Theme: `.streamlit/config.toml` (cobalt accent `#2F6FEB`).
 
-### Overview
+- **Overview** — landing page and MPC loop diagram.
+- **Playground** — presets (speed step, load step, load removal, periodic load, noisy encoder, tight limits, plant mismatch, reverse) and sliders for reference, load, noise, mismatch, drive limits and controller knobs. Four synchronised panels (speed, armature current, voltage, torque) for all three controllers, a key-metrics table, and an animated **motor view** that replays the shaft with speed, direction, current, voltage, load and a limit indicator. A **Motor configuration** panel edits every motor parameter (with range validation and a restore-defaults button); custom motors simulate live.
+- **Step-through** — walk one MPC horizon at a time: predicted speed and armature current, planned voltage, load-torque estimate.
+- **Scorecard** — the same ten scenarios as the batch run, with a metric explorer.
 
-Landing page with the same MPC loop diagram and short paths into the lab.
-
-<p align="center">
-  <img src="docs/streamlit-overview.png" width="920" alt="Streamlit Overview: MPC Heater Lab landing page with MPC block diagram">
-</p>
-
-### Playground
-
-Compare MPC, PID, and optimised PID on one chart. Presets load from disk. Cold open is the tight-power case.
-
-<p align="center">
-  <img src="docs/streamlit-playground.png" width="920" alt="Streamlit Playground default: tight power limits">
-</p>
-
-#### Playground presets
-
-| Setpoint jump | Cold-door disturbance |
-| :---: | :---: |
-| <img src="docs/streamlit-playground-setpoint.png" width="440" alt="Playground setpoint jump"> | <img src="docs/streamlit-playground-cold-door.png" width="440" alt="Playground cold-door ambient step"> |
-
-| Heat-loss bump + sensor noise | Tight power / rate limits |
-| :---: | :---: |
-| <img src="docs/streamlit-playground-heat-loss-noise.png" width="440" alt="Playground heat-loss bump with sensor noise"> | <img src="docs/streamlit-playground-tight-power.png" width="440" alt="Playground tight power and rate limits"> |
-
-| Soft limits + different knobs | Model mismatch |
-| :---: | :---: |
-| <img src="docs/streamlit-playground-soft-limits.png" width="440" alt="Playground soft limits and different controller knobs"> | <img src="docs/streamlit-playground-mismatch.png" width="440" alt="Playground plant/model mismatch"> |
-
-### Step-through
-
-Walk one MPC horizon at a time.
-
-<p align="center">
-  <img src="docs/streamlit-step-through.png" width="920" alt="Streamlit Step-through: MPC predicted temperature over the horizon">
-</p>
-
-### Scorecard
-
-Same scenarios as the batch runs: limit hits, settling, overshoot (including model mismatch).
-
-<p align="center">
-  <img src="docs/streamlit-scorecard.png" width="920" alt="Streamlit Scorecard: metrics table and bar charts">
-</p>
-
-## Showcase video
-
-The cut focuses on power limits: plain PID breaks the slew; MPC stays inside the limits by planning ahead; optimised PID keeps the gains from the mild setpoint jump and is not retuned on the tight-limit case.
-
-<p align="center">
-  <a href="https://raw.githubusercontent.com/Vinayak-RZ/model-predictive-control/main/video/out/mpc-vs-pid.mp4">
-    <img src="docs/video-poster.png" width="720" alt="Play showcase video (poster)">
-  </a>
-</p>
-
-<p align="center">
-  <video src="https://raw.githubusercontent.com/Vinayak-RZ/model-predictive-control/main/video/out/mpc-vs-pid.mp4" controls width="720" poster="docs/video-poster.png">
-    Your browser does not support inline video. <a href="https://raw.githubusercontent.com/Vinayak-RZ/model-predictive-control/main/video/out/mpc-vs-pid.mp4">Download the MP4</a>.
-  </video>
-</p>
-
-<p align="center">
-  <img src="docs/demo-preview.gif" width="720" alt="10 s preview of the power-limit animation">
-</p>
-
-**Repo copy:** [`video/out/mpc-vs-pid.mp4`](video/out/mpc-vs-pid.mp4) · **Duration:** 82 s · **Size:** ~1.8 MB · **Source:** [`video/index.html`](video/index.html) + [`video/data/`](video/data/) from `python3 scripts/export_video_data.py`.
+Screenshots: `python scripts/capture_streamlit_screenshots.py` with the app running (needs Playwright).
 
 ## Proof (batch metrics)
 
-Figures below match the Streamlit scorecard used for the presentation deck (`presentation.py`).
+Real output of `scripts/rebuild_report_metrics.py` (`report/metrics_summary.json`); the same numbers as the Scorecard page. Optimised PID uses the gains found once on `speed_tracking` (Kp 0.0326 V/RPM, Ki 0.131, Kd 0) and is **not** retuned per scenario. Every controller sees the same reference, load, bus and noise arrays and goes through the same drive.
 
 | Scenario | Metric | MPC | PID | Optimised PID |
 | --- | --- | --- | --- | --- |
-| Setpoint tracking | Settling [s] | **73** | 179 | 99 |
-| Setpoint tracking | IAE | **1044** | 2477 | 1466 |
-| Disturbance rejection | Settling [s] | **46** | 103 | 60 |
-| Power limits | Limit hits | **0** | 6 | 0 |
-| Power limits | IAE | **8727** | 9153 | 9033 |
-| Model mismatch | Settling [s] | **83** | 167 | 109 |
+| Motor startup (0→1000 RPM) | Settling [s] | **0.76** | 1.84 | 0.92 |
+| Speed tracking (4 steps) | IAE [RPM·s] | **1071** | 1854 | 1660 |
+| Load step (0.05→0.10 N·m) | IAE [RPM·s] | **3** | 35 | 8 |
+| Variable load | IAE [RPM·s] | **45** | 275 | 96 |
+| Sensor noise (15 RPM σ) | IAE [RPM·s] | **103** | 181 | 160 |
+| Reverse (±1000 RPM) | Settling [s] | **0.69** | 2.37 | 1.44 |
+| Voltage saturation (bus sag) | IAE [RPM·s] | **3307** | 4122 | 4092 |
+| Current protection | Time current-limited [s] | **4.34** | 9.18 | 9.71 |
+| Model mismatch (R +20 %, J +30 %, B +25 %) | IAE [RPM·s] | **1290** | 1794 | 1700 |
 
-Simulation plots:
+Read these with the caveats in mind:
 
-| Setpoint | Disturbance | Power limits |
+- The MPC knows the nominal motor model and uses the measured armature current; the PID loops use speed only. That is the point of the comparison, not a like-for-like feedback structure.
+- The load-step and load-removal differences are mostly the MPC's disturbance estimator reacting within a sample or two. A PID with a larger integral gain would close part of the gap, at the price of noise sensitivity and overshoot (see the noise scenario).
+- Where the drive's limits dominate (`voltage_saturation`, `current_protection`) the controllers are close, because the actuator, not the algorithm, sets the best achievable response.
+- The weights, horizon and observer gain are hand-set; no stability proof is claimed. Parameters are illustrative.
+- Under ±20 % winding-resistance error the drive's current limit can be exceeded transiently (peak 9.1 A against an 8 A limit in the low-resistance corner) before feedback backs the voltage off.
+
+All metrics (rise time, steady-state error, ITAE, RMS current, energy, motor and drive efficiency, recovery time, …) are in `results/metrics_summary.json` and `results/<scenario>_metrics.md`. Per-scenario figures are `results/<scenario>.png`.
+
+| Speed tracking | Load step | Current protection |
 | :---: | :---: | :---: |
-| <img src="results/setpoint_tracking.png" width="280" alt="Setpoint tracking plot"> | <img src="results/disturbance_rejection.png" width="280" alt="Disturbance rejection plot"> | <img src="results/power_constraints.png" width="280" alt="Power limits plot"> |
-
-**Fair comparison (UI):** optimised PID gains are tuned once on the mild setpoint jump (`baseline_optimized_pid` in `playground.py`), then frozen across presets and scorecard scenarios. You do not get a free retune for every operating condition. MPC uses the same planner throughout. Batch scripts may still retune per scenario for report tables. Heater power is clipped to `[u_min, u_max]` every step.
+| <img src="results/speed_tracking.png" width="280" alt="Speed tracking"> | <img src="results/load_step.png" width="280" alt="Load step"> | <img src="results/current_protection.png" width="280" alt="Current protection"> |
 
 ## How it works
 
 ```text
-  y_meas ──► offset-free MPC (SciPy on ARX + d_hat)
-                    │
-                    ▼ u [kW]
-              CasADi heater plant ──► temperature [°C]
-                    ▲
-         PID + optimised PID (same plant, same metrics)
+ encoder (+noise) ──┐
+ current sensor ────┼─► offset-free MPC (SciPy SLSQP, [i, ω] model + torque/voltage estimates)
+                    │           │ V_cmd                 PID / optimised PID ◄─ speed
+                    ▼           ▼                              │
+              ┌──────────────── motor drive ◄──────────────────┘
+              │   enable · slew limit · ±V_max · current protection
+              ▼ V_a
+        PMDC motor twin  (L di/dt, J dω/dt, RK4 at 1 ms; controller every 10 ms)
 ```
 
-Plain story: [`docs/EXPLAINER.md`](docs/EXPLAINER.md) · Maths / EE: [`docs/THEORY.md`](docs/THEORY.md) · Engineering notes: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) · Course write-up: [`report/report.pdf`](report/report.pdf) · source [`report/main.tex`](report/main.tex) · notes [`report/README.md`](report/README.md)
+Plain story: [`docs/EXPLAINER.md`](docs/EXPLAINER.md) · Maths and modelling: [`docs/THEORY.md`](docs/THEORY.md) · Engineering notes: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) · Course write-up: [`report/report.pdf`](report/report.pdf) · source [`report/main.tex`](report/main.tex) · notes [`report/README.md`](report/README.md)
+
+The actual plant, the MPC's prediction model, the drive and the measurement model are four separate pieces of code; `docs/THEORY.md` §5 maps them.
 
 Educational use. Licences: [`CREDITS.md`](CREDITS.md).

@@ -1,350 +1,220 @@
 # Industrial control theory for this lab
 
-> **Start here if you want equations.** Plain story with almost no maths → [EXPLAINER.md](EXPLAINER.md)  
-> Knob list → [HOW-IT-WORKS.md](../HOW-IT-WORKS.md) · Scenario tables → [report/report.md](../report/report.md)
+> **Start here if you want equations.** Plain story with almost no maths → [EXPLAINER.md](EXPLAINER.md)
+> Knob list and code map → [HOW-IT-WORKS.md](../HOW-IT-WORKS.md) · Scenario results → [report/report.md](../report/report.md)
 
-British spelling. Symbols match what the code implements. Numeric examples are **illustrative coursework values**, not plant data.
+British spelling. Symbols match what the code implements. Motor numbers are **illustrative coursework values**, a self-consistent baseline and not a commercial motor.
 
 ---
 
-## Part 0 — Why this document exists
+## 1. The industrial job
 
-### The control problem in one paragraph
+A permanent-magnet DC (PMDC) motor with a controlled armature voltage is a standard industrial drive. It turns conveyor belts, pumps, automated manufacturing equipment, material-handling systems, mechanical actuators and general machinery. The control job is to **hold a commanded shaft speed** while the mechanical load changes, the supply wobbles, the sensor is noisy and the drive protects itself (voltage ceiling, slew limit, current limit).
 
-An induction heater puts electrical power into a workpiece; temperature rises; heat also leaks to the surroundings. The industrial job is to **track a temperature setpoint** while respecting **actuator limits** (coil power window and how fast power may slew). This coursework compares three ways to choose that power each sample: offset-free **MPC**, hand-tuned **PID**, and **optimised PID** (same PID law, gains found offline).
+This lab compares three ways of choosing the armature voltage each 10 ms: offset-free **MPC**, a hand-tuned **PID**, and an **optimised PID** (same PID law, gains found offline once and then frozen).
 
-### Why go into the maths
+## 2. Physical structure of the PMDC motor
 
-Industrial control design is not “pick a controller name.” You need:
+Stator permanent magnets give a fixed field. The rotor carries the armature winding with resistance \(R_a\) and inductance \(L_a\); a commutator feeds current \(i_a\) to it. Current in the field produces torque \(K_t i_a\). The spinning winding generates a back EMF \(K_e \omega\) that opposes the applied voltage \(V_a\). The shaft drives the load through inertia \(J\) with viscous friction \(B\) and an external load torque \(T_L\). A motor drive supplies the voltage; a speed sensor (encoder) and a current sensor close the loop.
 
-1. A **plant model** you can write and simulate — otherwise you cannot predict or tune safely.
-2. A **decision problem** with an explicit cost and hard constraints — otherwise “optimal” is a slogan.
-3. **Metrics** that match the engineering goal — tracking error, settling, energy, constraint violations.
+## 3. Electrical and mechanical modelling
 
-Without those, you cannot explain *what* was optimised, *why* MPC and PID differ on the same heater, or defend the plots in the report. The sections below climb from the heat balance into the discrete controllers this repository actually runs.
+Electrical (Kirchhoff on the armature loop):
 
-If you only need the kitchen-table story, stop at [EXPLAINER.md](EXPLAINER.md).
+\[ L_a \frac{di_a}{dt} = V_a - R_a i_a - K_e \omega \]
 
-### Symbol ↔ code map
+Mechanical (Newton on the shaft):
 
-| Idea | Symbol (this doc) | Code |
+\[ J \frac{d\omega}{dt} = K_t i_a - B\omega - T_L, \qquad \frac{d\theta}{dt} = \omega \]
+
+Monitored quantities: torque \(T_{em}=K_t i_a\), back EMF \(E=K_e\omega\), electrical power \(V_a i_a\), mechanical output \(T_{em}\omega - B\omega^2\) (shaft) and \(T_L\omega\) (into the load).
+
+SI units are used internally. Speed is shown in RPM in the UI (\(\omega = 2\pi\,\mathrm{rpm}/60\)).
+
+| Parameter | Symbol | Baseline | Unit |
+| --- | --- | ---: | --- |
+| Rated / maximum drive voltage | \(V_{rated}, V_{max}\) | 24 | V |
+| Armature resistance | \(R_a\) | 1.0 | Ω |
+| Armature inductance | \(L_a\) | 0.010 | H |
+| Torque constant | \(K_t\) | 0.050 | N·m/A |
+| Back-EMF constant | \(K_e\) | 0.050 | V·s/rad |
+| Inertia | \(J\) | 0.002 | kg·m² |
+| Viscous friction | \(B\) | 0.001 | N·m·s/rad |
+| Nominal load torque | \(T_L\) | 0.050 | N·m |
+| Maximum current | \(I_{max}\) | 8 | A |
+| Maximum speed | \(\omega_{max}\) | 3000 | RPM |
+| Plant step / controller period | \(dt,\;T_s\) | 1 ms / 10 ms | |
+
+All of these live in `PMDCParams` (`twin/pmdc.py`) and are validated against physical ranges. Nothing else hardcodes a motor number.
+
+## 4. State space and transfer function
+
+With \(x=[i_a,\omega,\theta]^\top\), \(u=V_a\), \(d=T_L\): \(\dot x = Ax + Bu + Ed\), with
+
+\[ A=\begin{bmatrix}-R_a/L_a & -K_e/L_a & 0\\ K_t/J & -B/J & 0\\ 0&1&0\end{bmatrix},\quad B=\begin{bmatrix}1/L_a\\0\\0\end{bmatrix},\quad E=\begin{bmatrix}0\\-1/J\\0\end{bmatrix}. \]
+
+For the baseline: \(A=\begin{bmatrix}-100&-5&0\\25&-0.5&0\\0&1&0\end{bmatrix}\), \(B=[100,0,0]^\top\), \(E=[0,-500,0]^\top\) (asserted in `tests/test_pmdc_plant.py`).
+
+Speed from voltage (no load change):
+
+\[ \frac{\Omega(s)}{V_a(s)} = \frac{K_t}{L_aJ\,s^2 + (L_aB + R_aJ)\,s + (R_aB + K_eK_t)}. \]
+
+Baseline poles are \(s\approx -98.7\) and \(-1.75\ \mathrm{s^{-1}}\): an electrical mode (\(\tau_e = L_a/R_a = 10\) ms) and a mechanical mode (\(\tau_m\approx 0.57\) s). DC gain \(K_t/(R_aB+K_eK_t)\approx 14.3\) rad/s per volt (≈136 RPM/V).
+
+Steady state (used for initial conditions and tests):
+
+\[ V_a = R_a i_a + K_e\omega, \qquad K_t i_a = B\omega + T_L. \]
+
+At 1000 RPM and 0.05 N·m this is \(i_a\approx 3.09\) A, \(V_a\approx 8.33\) V; at 2500 RPM, ≈6.2 A and ≈19.3 V. A load of 0.10 N·m at 3000 RPM would need ≈8.3 A, more than \(I_{max}\), so that corner is infeasible by design.
+
+## 5. Four different models (do not mix them up)
+
+| Model | What it is | Where |
 | --- | --- | --- |
-| Temperature (controlled variable) | \(T\) or \(y\) | Plant state / measured \(y\) |
-| Coil power (manipulated variable) | \(P\) or \(u\) | Setpoint id `power_setpoint` |
-| Setpoint | \(r\) or \(y_{\mathrm{ref}}\) | Scenario reference trace |
-| Sample time | \(\Delta t\) | `dt_s` |
-| Linear prediction model | \(a, b\) | `IdentifiedLinearModel` |
-| Integrating disturbance | \(\hat{d}\) | `MpcState.d_hat` |
-| Horizon length | \(N\) | `horizon_steps` |
-| PID gains | \(K_p, K_i, K_d\) | `PIDGains` |
+| **Actual plant** | The simulated truth: PMDC equations, RK4, possibly mismatched parameters | `twin/pmdc.py`, `sim/plant.py` |
+| **Controller prediction model** | 2-state \([i_a,\omega]\) zero-order-hold discretisation of the *nominal* motor at \(T_s\), plus two disturbance estimates | `identified.py` (`MotorStateSpaceModel`) |
+| **Simulated motor drive** | Voltage saturation, slew limit, current protection, enable/e-stop | `sim/drive.py` |
+| **Measurement model** | Ideal current sensor; encoder speed with Gaussian noise of configurable σ | `sim/simulate.py` (`build_inputs`) |
 
-```mermaid
-flowchart LR
-  continuous[Heat_balance_ODE]
-  twin[CasADi_Euler_step]
-  closedLoop[simulate.py]
-  linear[Identified_ARX]
-  mpcSolve[mpc.solve]
-  pidStep[pid_step]
-  continuous --> twin
-  twin --> closedLoop
-  linear --> mpcSolve
-  mpcSolve --> closedLoop
-  pidStep --> closedLoop
-```
+Model-mismatch experiments change only the *plant* parameters; the MPC, the drive's own current estimate and the PID design always use nominal values.
 
----
+## 6. Simulation and numerical integration
 
-## Part 1 — Plant (thermal / EE framing)
+The controller runs every \(T_s=10\) ms and holds its output (zero-order hold). The plant is integrated with fixed-step RK4 at \(dt=1\) ms (10 sub-steps per sample), because \(\tau_e=10\) ms would be badly resolved by a 10 ms step. `tests/test_pmdc_plant.py` checks: RK4 against the exact matrix-exponential solution of the linear system, fourth-order convergence under step refinement, agreement between the Python RK4 and the CasADi twin, agreement with the analytic transfer-function step response, and the steady-state equations above.
 
-### Why a heat balance
+## 7. Drive constraints
 
-Electrical power delivered by the coil does not all appear as workpiece temperature rise. A first engineering model lumps the workpiece as one thermal mass and writes energy conservation: power that stays in the metal minus power that leaves to ambient equals the rate of change of stored thermal energy.
+Every controller's command passes through the same `MotorDrive`, in this order:
 
-### Continuous model
+1. enable / emergency-stop gate (e-stop is latched and forces 0 V);
+2. slew limit (default 1200 V/s = 12 V per sample);
+3. saturation at \(\pm V_{max}\cdot\) bus level (the DC bus can sag);
+4. **current protection**.
 
-\[
-m\, c_p\, \frac{\mathrm{d}T}{\mathrm{d}t}
-=
-\eta\, P
--
-U\,(T - T_{\mathrm{amb}})
-\]
+Current protection is a current-limited voltage drive, not a clip of the simulated current. The exact one-sample electrical response is
 
-| Symbol | Meaning |
+\[ i_{k+1} = \alpha\, i_k + (1-\alpha)\frac{V - K_e\omega}{R_a},\qquad \alpha=e^{-T_s/\tau_e}. \]
+
+Requiring \(|i_{k+1}|\le I_{max}\) gives a voltage window \(K_e\omega + \tfrac{R_a}{1-\alpha}(\pm I_{max}-\alpha i_k)\) that the command is clamped to, using the drive's own nominal \(R_a,K_e\) and the measured \(i_a\) and \(\omega\). If the true winding differs, a feedback term backs the voltage off in proportion to the measured excess current, so a ±20 % resistance error produces a bounded transient overshoot of the limit (see Limitations).
+
+Efficiency bookkeeping uses an illustrative converter efficiency `power_stage_efficiency` (default 0.95) that does not alter the applied voltage.
+
+## 8. PID
+
+Positional PID in RPM-in, volts-out form (`sim/pid.py`):
+
+\[ u = K_p e + I - K_d\,\dot y_f,\qquad I \mathrel{+}= K_i e\,T_s + \tfrac{T_s}{T_t}(u_{applied,prev}-u_{cmd,prev}). \]
+
+- derivative on the **measurement**, low-pass filtered (\(\tau_f=20\) ms), so reference steps cause no kick;
+- anti-windup by back-calculation against the voltage the **drive actually applied**, so slew, voltage and current limiting all unwind the integrator (\(T_t=50\) ms), plus a conditional clamp when the output saturates;
+- output clipped to \(\pm V_{max}\).
+
+## 9. MPC
+
+**Prediction model.** \(x_{k+1} = A_d x_k + B_d(V_k + \hat d_V) + E_d\hat d_T\) with \(x=[i_a,\omega]\), discretised exactly by a matrix exponential at \(T_s\) (`MotorStateSpaceModel`). The condensed prediction \(y = \Phi x_0 + \Gamma v + \ldots\) is built once per model and horizon.
+
+**Decision variables.** \(n_u=6\) voltage moves with growing block lengths 1, 2, 4, … samples (the last block is long), over a horizon \(N=60\) samples (0.6 s, about one mechanical time constant). The first move is applied; the rest are re-planned next sample.
+
+**Cost.** In RPM and volts:
+
+\[ J = q\sum_k (\omega_k-r_k)^2 + q_T(\omega_N-r_N)^2 + r_{\Delta}\sum_j \Delta V_j^2, \]
+
+with reference preview \(r_k\) (future reference samples), tracking weight \(q\), terminal weight \(q_T=50\), and move weight \(r_\Delta=5000\).
+
+**Constraints** (all linear in the decision variables, so SLSQP gets analytic Jacobians):
+
+- voltage box \(|V|\le V_{max}\cdot\) (as set on the drive);
+- voltage rate between moves \(|\Delta V|\le \dot V_{max}T_s\);
+- predicted armature current \(|i_{a,k}|\le I_{max}\) for the whole horizon.
+
+If the current bound is infeasible from the present state the solver falls back to the rate-only problem and the drive's protection acts; the loop never stalls.
+
+**Offset-free disturbance estimate.** Each sample the one-step innovations of current and speed are mapped to two disturbances through \([B_d\ E_d]\):
+
+\[ \begin{bmatrix}\Delta\hat d_V\\ \Delta\hat d_T\end{bmatrix}= g\,[B_d\ E_d]^{-1}\left(\begin{bmatrix}i_{meas}\\ \omega_{meas}\end{bmatrix}-A_d\begin{bmatrix}i_{prev}\\ \omega_{prev}\end{bmatrix}-B_d(V_{applied}+\hat d_V)-E_d\hat d_T\right). \]
+
+The torque estimate \(\hat d_T\) absorbs load and friction error. The voltage estimate \(\hat d_V\) absorbs electrical error (a wrong \(R_a\) or \(K_e\)); a torque-only estimate cannot, and leaves a speed offset under resistance mismatch (observed during development, fixed by estimating both). With both estimated, the model's two steady-state equations hold at the measured steady state, so the plan that drives the predicted speed to the reference drives the true speed there too (Pannocchia and Rawlings, 2003). Observer gain \(g=0.1\) trades load-step recovery against encoder-noise sensitivity.
+
+**Solver.** `scipy.optimize.minimize` SLSQP, objective scaled by \(10^{-6}\) so RPM² costs sit next to O(1) constraints.
+
+## 10. PID optimisation
+
+`pid_tune.py` runs L-BFGS-B on \((K_p,K_i,K_d)\) from three scaled starts, using a coarse finite-difference step because the objective has kinks. The objective of one closed-loop run is dimensionless:
+
+\[ J = 3\,\tfrac{\mathrm{IAE}}{T\cdot 1000} + 1\cdot\tfrac{\mathrm{OS}\%}{100} + 1\cdot\tfrac{t_s}{T} + 0.05\,\tfrac{\mathrm{rms}(\Delta V)}{0.1V_{max}} + 1\cdot\tfrac{t_{V\,sat}}{T} + 0.25\,\tfrac{t_{I\,lim}}{T}, \]
+
+(tracking error, overshoot, settling time, control effort, voltage-saturation time, current-limit time). Weights are in `TuneWeights`. Gains are tuned **once** on the `speed_tracking` scenario and **frozen** (`data/ui/optimized_pid.json`); every comparison reuses them. The hand-tuned PID is a deliberately conservative engineer's guess.
+
+## 11. Disturbance modelling
+
+| Disturbance | Implementation |
 | --- | --- |
-| \(m\) | Effective thermal mass (kg) |
-| \(c_p\) | Specific heat (J/(kg·K)) |
-| \(T\) | Lumped workpiece temperature (°C) |
-| \(\eta\) | Fraction of coil power that becomes useful heat (dimensionless) |
-| \(P\) | Coil electrical power (W in the twin; demos also speak in kW) |
-| \(U\) | Effective heat-loss coefficient (W/K) |
-| \(T_{\mathrm{amb}}\) | Ambient temperature (°C) |
+| Load step up / removal | `piecewise` torque profile (0.05↔0.10 N·m) |
+| Periodic load | \(T_L=T_0+A\sin 2\pi f t\) |
+| Random load | seeded, bounded, piecewise-linear |
+| Parameter mismatch | plant \(R_a, L_a, J, B\) scaled; controller keeps nominal |
+| Sensor noise | seeded Gaussian on measured speed |
+| DC-bus variation | bus level profile scales \(V_{max}\) |
 
-This is a **first-order nonlinear** plant in \(T\) (the loss term depends on \(T\)). Geometry (coil turns, frequency, diameter) is *not* invented in this module; those belong to a fuller EM model. Here the twin is the pack-bound heat balance in [`src/mpc_core/twin/ibh.py`](../src/mpc_core/twin/ibh.py).
+## 12. Scenarios
 
-### Discrete twin (explicit Euler)
+All reproducible; every controller sees identical reference, load, bus and noise arrays and initial state.
 
-Controllers run at a fixed sample time \(\Delta t\). The CasADi step is explicit Euler:
-
-\[
-T_{k+1}
-=
-T_k
-+
-\Delta t\cdot
-\frac{\eta\, P_k - U\,(T_k - T_{\mathrm{amb}})}{m\, c_p}
-\]
-
-That is the “plant” inside closed-loop simulations. Disturbances in the lab (cold door, \(U\) bump, sensor noise, parameter mismatch) change what the twin experiences relative to the controller’s beliefs.
-
----
-
-## Part 2 — Prediction model inside the MPC
-
-### Why not optimise on the nonlinear twin every tick?
-
-You *could* embed the nonlinear ODE in a heavy NLP. This coursework uses a **fast identified linear discrete model** so each second’s solve stays small (SciPy `L-BFGS-B`, soft time limit). The twin remains the truth for evaluation; the linear model is the optimiser’s imagination.
-
-### SISO ARX form
-
-\[
-y_{k+1} = a\, y_k + b\, u_k + \hat{d}
-\]
-
-- \(y\): temperature used by the MPC (°C)
-- \(u\): coil power command (same units as in the identified experiment)
-- \(a, b\): fit coefficients from an identification experiment (`IdentifiedLinearModel`)
-- \(\hat{d}\): integrating disturbance (next section) — not part of the raw fit record
-
-The module **never invents** \(a, b\); it refuses \(b = 0\) and bad sample metadata.
-
-**Steady-state gain** (how much \(\Delta y\) for a held \(\Delta u\) when \(\hat{d}\) is fixed):
-
-\[
-K_{\mathrm{ss}} = \frac{b}{1 - a}
-\quad (a \neq 1)
-\]
-
-Illustrative unit-test ARX only: \(a = 0.9\), \(b = 0.05\) ⇒ \(K_{\mathrm{ss}} = 0.5\). Demo configs use their own identified card — see the report for scenario setup.
-
-### Rolling a plan (state prediction)
-
-Given \(y_0 = y_{\mathrm{meas}}\), \(\hat{d}\), and a candidate sequence \(u_0,\ldots,u_{N-1}\):
-
-\[
-y_{i+1} = a\, y_i + b\, u_i + \hat{d},
-\quad i = 0,\ldots,N-1
-\]
-
-That sequence \(\{y_i\}\) is the **state prediction**. The sequence \(\{u_i\}\) is the **input prediction**.
-
----
-
-## Part 3 — The optimisation problem (MPC)
-
-### Receding-horizon idea, formally
-
-At each sample:
-
-1. Form a finite-horizon decision problem.
-2. Solve for a planned input sequence.
-3. Apply **only the first** input.
-4. Shift time, remeasure, resolve.
-
-### Decision variables (move blocking)
-
-Instead of freeing every \(u_i\), the code optimises **increments** \(\Delta u_0,\ldots,\Delta u_{n_u-1}\) (`n_u_moves`, default **1**), integrates them from the current \(u_0\), clips to the power window, and **holds the last free value** for the remainder of the horizon (`_deltas_to_sequence` in [`mpc.py`](../src/mpc_core/mpc.py)).
-
-Rate limits appear as box bounds on each \(\Delta u\):
-
-\[
-|\Delta u_j| \le \Delta u_{\max}
-\]
-
-The first applied move is also clipped into the one-step feasible set
-
-\[
-u^\star \in
-\bigl[\max(u_{\min},\, u_0 - \Delta u_{\max}),\;
-\min(u_{\max},\, u_0 + \Delta u_{\max})\bigr].
-\]
-
-### Cost (what “best” means here)
-
-With predicted temperatures \(y_i\) and reference \(y_{\mathrm{ref}}\):
-
-\[
-J
-=
-w
-\sum_{i=0}^{N-1}
-w_i\, (y_i - y_{\mathrm{ref}})^2
-\]
-
-- \(w\): `tracking_weight` (default 1)
-- \(w_i = 1\) early in the horizon; from about the last third of the horizon, \(w_i = 2.5\) (**terminal emphasis**) so late errors matter more
-- There is **no move-suppression term** in this coursework controller (documented on purpose so nothing is invented)
-
-Constraints are the power window and max step above — treated as bounds in the solver, not soft penalties inside \(J\).
-
-### Solver
-
-- Library: SciPy `minimize`, method **`L-BFGS-B`**
-- Soft wall clock: objective raises `MpcTimedOut` if `time_limit_s` is exceeded
-- Return: first-move proposal, predicted \(y\) sequence, active constraint tags, updated `MpcState`
-
-### Offset-free disturbance (why \(\hat{d}\))
-
-A constant model bias or slow load change would leave a steady tracking offset if the predictor never corrected. This lab uses an **integrating disturbance** in the spirit of Pannocchia & Rawlings (2003). Each solve refreshes \(\hat{d}\) from the one-step innovation (`refresh_disturbance`):
-
-- **First run** (no history): initialise as if at steady state  
-  \(\hat{d}_0 = (1-a)\, y_{\mathrm{meas}} - b\, u_{\mathrm{current}}\)
-- **Later runs:**  
-  \(y_{\mathrm{pred}} = a\, y_{\mathrm{last}} + b\, u_{\mathrm{last}} + \hat{d}\),  
-  then \(\hat{d} \leftarrow \hat{d} + (y_{\mathrm{meas}} - y_{\mathrm{pred}})\)  
-  (full innovation correction; no separate observer gain)
-
-That is the “offset-free” label in the README: the controller absorbs persistent prediction error into \(\hat{d}\) so the plan can cancel it.
-
-```mermaid
-flowchart TB
-  yMeas[y_meas]
-  refresh[refresh_disturbance]
-  buildPlan[Build_u_sequence_from_deltas]
-  predict[Roll_linear_model]
-  cost[Evaluate_J]
-  solver[L-BFGS-B]
-  apply[Apply_first_u]
-  yMeas --> refresh
-  refresh --> buildPlan
-  buildPlan --> predict
-  predict --> cost
-  cost --> solver
-  solver --> buildPlan
-  solver --> apply
-```
-
----
-
-## Part 4 — PID and optimised PID
-
-### Discrete PID as implemented
-
-Error at sample \(k\):
-
-\[
-e_k = y_{\mathrm{ref}} - y_k
-\]
-
-[`pid_step`](../src/mpc_core/sim/pid.py) builds an incremental-style command from proportional, integral, and derivative pieces (with previous command \(u_{\mathrm{prev}}\)):
-
-\[
-I_k = I_{k-1} + e_k\,\Delta t,
-\quad
-D_k = \frac{e_k - e_{k-1}}{\Delta t}\ (\Delta t > 0),
-\]
-
-\[
-u_{\mathrm{raw}}
-=
-u_{\mathrm{prev}}
-+ K_p\, e_k
-+ K_i\, I_k
-+ K_d\, D_k
-\]
-
-Then:
-
-1. Clip to \([u_{\min}, u_{\max}]\).
-2. If clipping happened and \(K_i \neq 0\), **back-calculate** \(I_k\) so the integral does not keep winding (**anti-windup**).
-3. Optionally enforce a rate limit \(|u - u_{\mathrm{prev}}| \le \Delta u_{\max}\).
-
-No prediction model appears. Constraints are handled by clamping (and optional rate limiting), not by an inner optimiser at runtime.
-
-### Optimised PID (offline)
-
-[`tune_pid_gains`](../src/mpc_core/sim/pid_tune.py) searches \(x = (K_p, K_i, K_d)\) with the same SciPy **`L-BFGS-B`** family, but the objective is **not** the MPC horizon cost. For each candidate gain vector it runs a full closed-loop scenario and scores:
-
-\[
-J_{\mathrm{tune}}
-=
-\mathrm{IAE}
-+
-\lambda\cdot(\text{constraint violation steps})
-\]
-
-Default \(\lambda = 250\). Gain bounds in code: \(K_p \in [0.05, 12]\), \(K_i \in [0, 0.35]\), \(K_d \in [0, 8]\`.
-
-**Fairness:** MPC, PID, and tuned PID share the same plant twin path, noise seed options, and limit objects via `simulate.run_closed_loop`. Optimised PID is therefore a strong baseline: scenario-specific offline search, still no preview online.
-
----
-
-## Part 5 — Metrics and what the scenarios test
-
-### Definitions (as coded in `metrics.py`)
-
-Let \(e(t) = y_{\mathrm{ref}}(t) - y(t)\), discrete with steps \(\Delta t_k\).
-
-| Metric | Definition (lab) | What it rewards |
-| --- | --- | --- |
-| **IAE** | \(\sum \|e_k\|\,\Delta t_k\) | Less absolute area off target |
-| **ISE** | \(\sum e_k^2\,\Delta t_k\) | Penalises large errors harder |
-| **Overshoot %** | Peak excursion vs late reference segment | Less ringing past the target |
-| **Settling time** | Time after which \(y\) stays in a ±3% band of the late reference (lab heuristic) | Faster “close enough” |
-| **Violation steps** | Samples outside power window or exceeding \(\Delta u_{\max}\) | Feasible actuation |
-| **Energy** | \(\sum u_k\,\Delta t_k / 3600\) (kWh with \(u\) in kW) | Less energy for the same job |
-
-### Coursework scenarios (intent)
-
-| Scenario | Engineering question |
+| Key | Test |
 | --- | --- |
-| Setpoint tracking | Who reaches the new temperature band cleanly? |
-| Disturbance rejection | Who recovers when heat loss jumps? (\(U\) bump; \(\hat{d}\) helps MPC) |
-| Power / rate limits | Who stays feasible when the target is aggressive? |
-| Model mismatch | How much does MPC degrade when the twin ≠ the linear model? |
+| `motor_startup` | 0 → 1000 RPM at nominal load |
+| `speed_tracking` | 1000 / 2000 / 1500 / 2500 RPM every 5 s |
+| `load_step` | 2000 RPM, 0.05 → 0.10 N·m at 5 s |
+| `load_removal` | 2000 RPM, 0.10 → 0.05 N·m at 5 s |
+| `voltage_saturation` | 2900 RPM reference, bus sags to 85 % at 8 s |
+| `current_protection` | 2500 RPM, load 0.10 → 0.14 N·m (needs more than 8 A) |
+| `model_mismatch` | \(R_a\) +20 %, \(J\) +30 %, \(B\) +25 %, load step at 8 s (and the opposite corner) |
+| `sensor_noise` | 15 RPM encoder noise during a 1000 → 1500 RPM step |
+| `variable_load` | 0.5 Hz sinusoid plus bounded random torque at 1500 RPM |
+| `reverse_operation` | +1000 → −1000 → +1000 RPM |
 
-Numbers and figures live in [report/report.md](../report/report.md) — this document does not duplicate the tables.
+## 13. Metrics (as coded in `sim/metrics.py`)
 
-### EE takeaways you should be able to defend
+Speed regulation: rise time (10→90 % of the last reference step), settling time (2 % band, last reference segment), overshoot (% of step), steady-state error (mean over the last 10 %), max / mean absolute error, IAE, ISE, ITAE, speed-recovery time after a load change. Electrical: peak and RMS current, mean and peak voltage, voltage-saturation time, current-limit time, electrical energy \(\int V_a i_a\,dt\). Mechanical: peak torque, mean load torque, mean shaft power, mechanical energy.
 
-1. **MPC** encodes preview + constraints as an explicit optimisation; compute cost is a small NLP each sample.
-2. **PID** encodes present/past/trend of error; compute cost is negligible; constraint handling is outer clamping unless you add structure.
-3. **Optimised PID** shows that “PID lost” is often “PID not retuned”; offline search can win on IAE for *that* scenario without becoming predictive.
-4. **Offset-free** linear MPC still depends on a usable model; mismatch shrinks the gap to feedback-only methods.
+Efficiency is energy-weighted and returns *none* at zero input:
+
+- **Motor efficiency** = shaft output energy / terminal electrical energy (copper and viscous-friction losses).
+- **Drive (overall) efficiency** = useful load energy (\(T_L\omega\)) / supply energy (terminal energy ÷ converter efficiency), so it is lower than the motor figure by the converter loss.
+
+## 14. Simulation assumptions
+
+- Linear PMDC model with constant parameters; ideal brushes and commutation (no brush drop).
+- Load torque is a constant-sign external torque, also at standstill (an "active" load such as a hoist). A passive load with stiction would behave differently near zero speed.
+- Ideal current sensor; encoder noise is white Gaussian; no sensor quantisation or delay.
+- Ideal bidirectional power stage with a fixed illustrative efficiency; regeneration is allowed and not counted as energy returned.
+- Controllers and the drive are evaluated at \(T_s=10\) ms with no computation delay.
+
+## 15. Limitations
+
+- Armature reaction, magnetic saturation, temperature dependence of \(R_a\), Coulomb friction, backlash and shaft compliance are not modelled.
+- Under ±20 % resistance error the drive's current limit can be exceeded transiently (up to ~14 % over in the worst corner) before feedback backs the voltage off.
+- The optimised PID is optimised on one scenario; its advantage elsewhere is whatever carries over, which is the point of freezing it.
+- The MPC is SISO with hand-set weights, horizon and move blocking; no stability proof is claimed. Solve time (about 1–5 ms) leaves margin at 10 ms but is not hard-real-time.
+- Parameters are illustrative; do not cite them as data for a real motor.
 
 ---
 
-## Where the picture breaks (theory level)
-
-- Linear ARX + \(\hat{d}\) ≠ nonlinear heat balance; local validity only.
-- Default \(n_u = 1\) is move-blocked simplicity, not full multi-move industrial MPC.
-- No state (temperature) inequality constraints — only input window/rate.
-- Identification, model cards, and thresholds exist for gating; production would add move weights, MIMO, and harder validation.
-- Illustrative parameters: do not cite coursework numbers as site data.
-
----
-
-## Words and symbols introduced
+## Symbols
 
 | Symbol / term | Meaning |
 | --- | --- |
-| \(m, c_p, \eta, U, T_{\mathrm{amb}}\) | Heat-balance parameters |
-| \(a, b\) | Discrete linear prediction coefficients |
-| \(\hat{d}\) | Integrating disturbance for offset-free control |
-| \(N\), horizon | Prediction length in samples |
-| \(J\) | MPC tracking cost (weighted SSE) |
-| \(\Delta u_{\max}\) | Maximum power step per sample |
-| \(K_p, K_i, K_d\) | PID gains |
-| IAE / ISE | Integrated absolute / squared error |
-| Receding horizon | Replan every sample; apply first move only |
-| Move blocking | Few free moves, then hold |
+| \(R_a,L_a,K_t,K_e,J,B\) | Motor parameters |
+| \(i_a,V_a,\omega,\theta\) | Armature current, voltage, shaft speed, angle |
+| \(T_L,\hat d_T,\hat d_V\) | Load torque; estimated torque and voltage disturbances |
+| \(T_s, N, n_u\) | Sample period, prediction horizon, number of free moves |
+| \(q,q_T,r_\Delta\) | Tracking, terminal and move weights |
+| \(K_p,K_i,K_d\) | PID gains |
+| IAE / ISE / ITAE | Integrated absolute / squared / time-weighted absolute error |
 
----
+## References
 
-## References (verified in-repo)
-
-1. Pannocchia, G. and Rawlings, J. B. (2003). Disturbance models for offset-free model-predictive control. *AIChE Journal*. (Cited for the offset-free idea; implementation is the innovation update in `mpc.py`.)
+1. Pannocchia, G. and Rawlings, J. B. (2003). Disturbance models for offset-free model-predictive control. *AIChE Journal*, 49(2), 426–437. (Offset-free idea; the implementation is the innovation update in `mpc_motor.py`.)
 2. Implementation notes: [HOW-IT-WORKS.md](../HOW-IT-WORKS.md)
 3. Experimental narrative: [report/report.md](../report/report.md)
 4. Plain explainer: [EXPLAINER.md](EXPLAINER.md)

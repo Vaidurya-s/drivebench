@@ -1,7 +1,7 @@
 [project]
 name = "model-predictive-control"
 version = "0.1.0"
-description = "Offset-free MPC and CasADi heater twin for industrial control coursework"
+description = "Offset-free MPC and CasADi PMDC motor twin for industrial control coursework"
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.0",
@@ -24,5 +24,5 @@ packages = ["src/mpc_core"]
 "src/mpc_core" = "mpc_core"
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]

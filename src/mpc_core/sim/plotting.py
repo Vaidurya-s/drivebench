@@ -1,4 +1,4 @@
-"""Matplotlib figures for MPC vs PID (layout inspired by public MPC tutorials)."""
+"""Matplotlib figures for MPC vs PID motor runs (batch results and report)."""
 
 from __future__ import annotations
 
@@ -6,19 +6,20 @@ from pathlib import Path
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import numpy as np
 
 from mpc_core.sim.metrics import SimulationMetrics
 from mpc_core.sim.simulate import SimulationResult
 
+COLORS = {"MPC": "#2563eb", "PID": "#71717a", "Opt. PID": "#0d9488"}
+
 
 def apply_plot_style() -> None:
-    """Readable defaults (grid/typography similar to do-mpc getting-started docs)."""
+    """Readable defaults."""
     mpl.rcParams.update(
         {
             "axes.grid": True,
             "font.size": 11,
-            "lines.linewidth": 2.0,
+            "lines.linewidth": 1.8,
             "figure.facecolor": "white",
             "axes.spines.top": False,
             "axes.spines.right": False,
@@ -34,22 +35,28 @@ def save_triple_figure(
     optimized_pid: SimulationResult,
     path: Path,
 ) -> None:
+    """Speed, armature current, voltage and torque for the three controllers."""
     apply_plot_style()
-    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(10, 6.5), constrained_layout=True)
-    axes[0].plot(mpc.time_s, mpc.y_ref, "k--", label="Setpoint", alpha=0.7)
-    axes[0].plot(mpc.time_s, mpc.y_c, label="MPC", color="#2563eb")
-    axes[0].plot(pid.time_s, pid.y_c, label="PID", color="#71717a")
-    axes[0].plot(optimized_pid.time_s, optimized_pid.y_c, label="Opt. PID", color="#0d9488")
-    axes[0].set_ylabel("Temperature [°C]")
-    axes[0].legend(loc="best")
+    fig, axes = plt.subplots(4, 1, sharex=True, figsize=(10, 10), constrained_layout=True)
+    runs = (("PID", pid), ("Opt. PID", optimized_pid), ("MPC", mpc))
+    axes[0].plot(mpc.time_s, mpc.ref_rpm, "k--", label="Reference", alpha=0.7)
+    for name, run in runs:
+        axes[0].plot(run.time_s, run.speed_rpm, label=name, color=COLORS[name])
+        axes[1].plot(run.time_s, run.i_a, label=name, color=COLORS[name])
+        axes[2].plot(run.time_s, run.v_applied, label=name, color=COLORS[name])
+        axes[3].plot(run.time_s, run.torque_nm, label=name, color=COLORS[name])
+    axes[3].plot(mpc.time_s, mpc.load_nm, "k:", label="Load torque", alpha=0.8)
+    for sign in (-1, 1):
+        axes[1].axhline(sign * mpc.i_max, color="#a1a1aa", ls="--", lw=1)
+        axes[2].axhline(sign * mpc.v_max, color="#a1a1aa", ls="--", lw=1)
+    axes[0].set_ylabel("Speed [RPM]")
+    axes[1].set_ylabel("Armature current [A]")
+    axes[2].set_ylabel("Applied voltage [V]")
+    axes[3].set_ylabel("Torque [N m]")
+    axes[3].set_xlabel("Time [s]")
     axes[0].set_title(title)
-
-    axes[1].plot(mpc.time_s, mpc.u_kw, label="MPC", color="#2563eb")
-    axes[1].plot(pid.time_s, pid.u_kw, label="PID", color="#71717a")
-    axes[1].plot(optimized_pid.time_s, optimized_pid.u_kw, label="Opt. PID", color="#0d9488")
-    axes[1].set_ylabel("Coil power [kW]")
-    axes[1].set_xlabel("Time [s]")
-    axes[1].legend(loc="best")
+    axes[0].legend(loc="best", ncols=4)
+    axes[3].legend(loc="best", ncols=4)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=150)
@@ -63,23 +70,25 @@ def save_comparison_figure(
     pid: SimulationResult,
     path: Path,
 ) -> None:
+    """MPC vs PID with the MPC load-torque estimate."""
     apply_plot_style()
     fig, axes = plt.subplots(3, 1, sharex=True, figsize=(10, 8), constrained_layout=True)
-
-    axes[0].plot(mpc.time_s, mpc.y_ref, "k--", label="Setpoint", alpha=0.7)
-    axes[0].plot(mpc.time_s, mpc.y_c, label="MPC")
-    axes[0].plot(pid.time_s, pid.y_c, label="PID", alpha=0.85)
-    axes[0].set_ylabel("Temperature [°C]")
+    axes[0].plot(mpc.time_s, mpc.ref_rpm, "k--", label="Reference", alpha=0.7)
+    axes[0].plot(mpc.time_s, mpc.speed_rpm, label="MPC", color=COLORS["MPC"])
+    axes[0].plot(pid.time_s, pid.speed_rpm, label="PID", color=COLORS["PID"], alpha=0.85)
+    axes[0].set_ylabel("Speed [RPM]")
     axes[0].legend(loc="best")
     axes[0].set_title(title)
 
-    axes[1].plot(mpc.time_s, mpc.u_kw, label="MPC power")
-    axes[1].plot(pid.time_s, pid.u_kw, label="PID power", alpha=0.85)
-    axes[1].set_ylabel("Coil power [kW]")
+    axes[1].plot(mpc.time_s, mpc.v_applied, label="MPC voltage", color=COLORS["MPC"])
+    axes[1].plot(pid.time_s, pid.v_applied, label="PID voltage", color=COLORS["PID"], alpha=0.85)
+    axes[1].set_ylabel("Voltage [V]")
+    axes[1].legend(loc="best")
 
+    axes[2].plot(mpc.time_s, mpc.load_nm, "k:", label="True load torque")
     if mpc.d_hat is not None:
-        axes[2].plot(mpc.time_s, mpc.d_hat, color="#2a6f97", label="MPC d_hat")
-    axes[2].set_ylabel("Disturbance est.")
+        axes[2].plot(mpc.time_s, mpc.d_hat, color=COLORS["MPC"], label="MPC estimate")
+    axes[2].set_ylabel("Load torque [N m]")
     axes[2].set_xlabel("Time [s]")
     axes[2].legend(loc="best")
 
@@ -88,20 +97,28 @@ def save_comparison_figure(
     plt.close(fig)
 
 
-def format_metrics_table(mpc_m: SimulationMetrics, pid_m: SimulationMetrics) -> str:
-    def row(name: str, a: float | None, b: float | None) -> str:
-        sa = "—" if a is None else f"{a:.3g}"
-        sb = "—" if b is None else f"{b:.3g}"
-        return f"| {name} | {sa} | {sb} |"
+def _fmt(v: float | None, spec: str = ".3g") -> str:
+    return "—" if v is None else format(v, spec)
 
-    lines = [
-        "| Metric | MPC | PID |",
-        "| --- | --- | --- |",
-        row("IAE", mpc_m.iae, pid_m.iae),
-        row("ISE", mpc_m.ise, pid_m.ise),
-        row("Overshoot [%]", mpc_m.overshoot_pct, pid_m.overshoot_pct),
-        row("Settling time [s]", mpc_m.settling_time_s, pid_m.settling_time_s),
-        row("Constraint violation steps", float(mpc_m.constraint_violation_steps), float(pid_m.constraint_violation_steps)),
-        row("Energy [kWh]", mpc_m.energy_kwh, pid_m.energy_kwh),
+
+def format_metrics_table(mpc_m: SimulationMetrics, pid_m: SimulationMetrics) -> str:
+    """Markdown comparison of the headline motor metrics."""
+    rows = [
+        ("Rise time [s]", "rise_time_s"),
+        ("Settling time [s]", "settling_time_s"),
+        ("Overshoot [%]", "overshoot_pct"),
+        ("Steady-state error [RPM]", "steady_state_error_rpm"),
+        ("IAE [RPM s]", "iae"),
+        ("ISE [RPM² s]", "ise"),
+        ("ITAE [RPM s²]", "itae"),
+        ("Max current [A]", "max_current_a"),
+        ("RMS current [A]", "rms_current_a"),
+        ("Voltage saturation [s]", "voltage_saturation_s"),
+        ("Current-limit active [s]", "current_limit_s"),
+        ("Electrical energy [J]", "electrical_energy_j"),
+        ("Drive efficiency", "drive_efficiency"),
     ]
+    lines = ["| Metric | MPC | PID |", "| --- | --- | --- |"]
+    for label, attr in rows:
+        lines.append(f"| {label} | {_fmt(getattr(mpc_m, attr))} | {_fmt(getattr(pid_m, attr))} |")
     return "\n".join(lines)

@@ -147,10 +147,14 @@ def test_solve_control_horizon_respects_rate() -> None:
     assert len(r.planned_u) == 20
 
 
-def test_default_demo_config_retuned_horizon() -> None:
+def test_default_demo_config_motor_defaults() -> None:
     from mpc_core.sim.config import default_demo_config
 
     cfg = default_demo_config()
-    assert cfg.horizon_steps == 40
+    assert cfg.dt_s == pytest.approx(0.010)
+    assert cfg.plant_dt_s == pytest.approx(0.001)
+    assert cfg.substeps == 10
+    assert cfg.horizon_steps * cfg.dt_s >= 0.5  # covers the mechanical time constant
     assert cfg.terminal_weight == 50.0
-    assert cfg.control_horizon == 1
+    assert cfg.limits.high == pytest.approx(cfg.motor.V_max)
+    assert cfg.limits.max_step == pytest.approx(cfg.drive.slew_v_per_s * cfg.dt_s)

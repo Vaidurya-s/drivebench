@@ -1,72 +1,58 @@
 #!/usr/bin/env python3
-"""Illustrative closed-loop demo: identified-linear plant + offset-free MPC.
+"""Small closed-loop demo: offset-free MPC on the PMDC motor twin.
 
-Numbers below are the same illustrative ARX used in the unit tests
-(a=0.9, b=0.05, not plant data). Nothing here writes to a plant.
+Starts a motor from rest, asks for 1000 RPM against an unmodelled extra load,
+and prints what the MPC plans each step. The plant is the RK4 motor twin; the
+MPC predicts with the nominal two-state model. Nothing here writes to hardware.
 """
 
 from __future__ import annotations
 
-from mpc_core import (
-    IdentifiedLinearModel,
-    MpcState,
-    SetpointLimits,
-    solve,
-)
-from mpc_core.twin.ibh import require_params, step_ibh
+from mpc_core import MpcState, solve
+from mpc_core.sim.config import default_demo_config
+from mpc_core.sim.drive import MotorDrive
+from mpc_core.sim.plant import initial_state, step_plant
 
 
 def main() -> None:
-    model = IdentifiedLinearModel(
-        fit_id="fit-demo-illustrative",
-        a=0.9,
-        b=0.05,
-        dt_s=1.0,
-        n_samples=200,
-        residual_rms=1e-9,
-        experiment="step",
-    )
-    limits = SetpointLimits("power_setpoint", "kW", 900.0, 1100.0, 50.0)
-    y = 500.0
-    u = 1000.0
-    y_ref = 510.0
+    cfg = default_demo_config()
+    drive = MotorDrive(cfg.drive, cfg.motor, cfg.dt_s)
+    plant = initial_state(cfg.motor)
     state = MpcState()
-    print("offset-free MPC on identified linear model (illustrative)")
-    print(f"y_ref={y_ref}, horizon_steps=20, time_limit_s=2.0")
-    for k in range(8):
-        result = solve(
-            model,
-            [limits],
-            {"power_setpoint": u},
-            y_meas=y,
-            y_ref=y_ref,
-            horizon_steps=20,
-            time_limit_s=2.0,
-            state=state,
-        )
-        u_next = result.best["power_setpoint"]
-        # True plant for the demo: same ARX as the controller model (perfect match).
-        y = model.a * y + model.b * u_next + 0.0
-        state = result.state
-        print(
-            f"k={k:02d} u={u_next:8.3f} y={y:8.3f} "
-            f"d_hat={result.d_hat:8.4f} active={result.active_constraints}"
-        )
-        u = u_next
+    limits = cfg.limits
+    load_nm = 0.09  # the model's nominal load is 0.05: the observer must find the rest
+    ref_rpm = 1000.0
 
-    print()
-    print("CasADi heater twin one-step (illustrative fixture params, not plant data)")
-    params = require_params(
-        {
-            "m_kg": 2.0,
-            "c_p_j_per_kg_k": 500.0,
-            "eta": 0.5,
-            "U_w_per_k": 10.0,
-            "T_amb_c": 25.0,
-        }
-    )
-    t_next = step_ibh(T_c=25.0, P_coil_w=1000.0, dt_s=1.0, params=params)
-    print(f"T_c=25, P_coil_w=1000, dt_s=1 → T_next={t_next}")
+    print(f"offset-free MPC on the PMDC motor: reference {ref_rpm:.0f} RPM, load {load_nm} N m")
+    for k in range(60):
+        result = solve(
+            cfg.model,
+            [limits],
+            {limits.setpoint_id: drive.v_applied},
+            y_meas=plant.speed_rpm,
+            y_ref=ref_rpm,
+            horizon_steps=cfg.horizon_steps,
+            time_limit_s=cfg.solver_time_limit_s,
+            state=state,
+            tracking_weight=cfg.tracking_weight,
+            control_horizon=cfg.control_horizon,
+            move_weight=cfg.move_weight,
+            terminal_weight=cfg.terminal_weight,
+            observer_gain=cfg.observer_gain,
+            i_meas=plant.i_a,
+            i_max=cfg.drive.I_max,
+        )
+        state = result.state
+        v, flags = drive.step(
+            result.best[limits.setpoint_id], i_a=plant.i_a, omega=plant.omega
+        )
+        plant = step_plant(plant, v, load_nm, cfg.dt_s, substeps=cfg.substeps)
+        if k % 6 == 0:
+            print(
+                f"t={k * cfg.dt_s:5.2f}s V={v:6.2f} i={plant.i_a:5.2f} A "
+                f"speed={plant.speed_rpm:7.1f} RPM d_hat={result.d_hat:6.3f} N m "
+                f"current_limited={flags.i_limited}"
+            )
 
 
 if __name__ == "__main__":

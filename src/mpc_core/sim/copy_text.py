@@ -1,42 +1,49 @@
-"""User-facing UI strings (drafted for write-like-vinayak). Do not polish casually."""
+"""User-facing UI strings for the Industrial DC Motor Control Lab."""
 
 from __future__ import annotations
 
-SIDEBAR_BRAND = "MPC Heater Lab"
+SIDEBAR_BRAND = "DC Motor Control Lab"
 
-OVERVIEW_TITLE = "MPC Heater Lab"
-OVERVIEW_LEDE = "Compare MPC and PID on the same heater model."
+OVERVIEW_TITLE = "Industrial DC Motor Control Lab"
+OVERVIEW_LEDE = (
+    "Compare MPC and PID on a permanent-magnet DC motor drive: the kind that turns "
+    "conveyors, pumps and machine axes."
+)
 OVERVIEW_MPC_BLURB = (
-    "MPC runs a model forward over a horizon, picks a power plan that stays inside "
-    "the limits, applies the first move, then re-plans from the measured temperature. "
-    "PID only reacts to the error it sees now."
+    "The controller adjusts the armature voltage to hold the shaft speed. MPC runs a "
+    "model of the motor forward over a horizon, picks a voltage plan that respects the "
+    "voltage, slew and current limits, applies the first move, then re-plans from the "
+    "measured speed and current. PID only reacts to the speed error it sees now. "
+    "All three controllers drive the same simulated motor through the same drive "
+    "(voltage saturation, slew limit, current protection)."
 )
 OVERVIEW_PAGES = (
-    ("Playground", "Set conditions and compare MPC with PID."),
-    ("Step-through", "Watch MPC plan one horizon at a time."),
-    ("Scorecard", "Compare settling, limit hits, and power use."),
+    ("Playground", "Set speed, load and drive conditions, then compare the controllers and watch the motor."),
+    ("Step-through", "Watch MPC plan speed and current one horizon at a time."),
+    ("Scorecard", "Compare rise, settling, current, energy and efficiency across ten scenarios."),
 )
 
 PLAYGROUND_TITLE = "Playground"
 PLAYGROUND_LEDE = (
-    "This page opens on a tight power and rate limit. That is the case where MPC keeps "
-    "the slew feasible, and the optimised PID (tuned once on a mild jump, then left alone) "
-    "does not."
+    "Opens on a step in load torque at constant speed. Watch how fast each controller "
+    "restores the speed, and what armature current and voltage it uses to do it."
 )
 PLAYGROUND_CAPTION = (
-    "Dashed lines are the power limits. Optimised PID uses the same gains on every preset: "
-    "the ones found on the mild setpoint jump. MPC uses the same planner throughout."
+    "Dashed lines in the current and voltage panels are the drive limits. Optimised PID "
+    "uses the same gains in every preset: the ones found once on the speed-tracking "
+    "scenario. MPC uses the same planner throughout."
 )
 
 STEP_TITLE = "Step-through"
-STEP_LEDE = "See how MPC plans each move on the heater."
+STEP_LEDE = "See how MPC plans each voltage move and what current it expects."
 
 SCORECARD_TITLE = "Scorecard"
 SCORECARD_LEDE = (
-    "Same plant, same limits. Optimised PID keeps the gains from the mild setpoint jump. "
-    "MPC keeps the same planner. Compare limit hits and settling time."
+    "Same motor, same drive, same inputs for every controller. Optimised PID keeps the "
+    "gains from the speed-tracking scenario. Pick a scenario to compare its metrics."
 )
-SCORECARD_POWER_TEMPLATE = (
-    "Power-limit hits: PID {pid_n}, MPC {mpc_n}, optimised PID {opt_n}. "
-    "MPC plans inside the window and the rate limit. The frozen Opt. PID can still clip them."
+
+MOTOR_CONFIG_NOTE = (
+    "Custom motor parameters are simulated live. The optimised PID gains were tuned on "
+    "the default motor and are not retuned unless you ask."
 )

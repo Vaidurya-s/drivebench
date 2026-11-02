@@ -1,4 +1,4 @@
-"""Closed-loop simulations: heater plant, PID baseline, MPC comparison.
+"""Closed-loop simulations: PMDC motor plant, drive, PID baselines, MPC comparison.
 
 Keep this module light: eager imports here race Streamlit multipage loading
 (pandas/plotly partial-init). Submodules are loaded on attribute access.

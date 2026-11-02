@@ -1,166 +1,120 @@
-# How the MPC and heater twin work
+# How the MPC, the drive and the motor twin work
 
-British spelling. Numbers below are taken from the source or from illustrative
-unit tests; nothing here invents a plant value.
+British spelling. Numbers below come from the source or from the unit tests;
+nothing here invents a plant value. Equations and derivations are in
+[docs/THEORY.md](docs/THEORY.md).
 
 ## Big picture
 
-There are two related pieces:
-
-1. **Offset-free MPC** (`mpc.py`) on an **identified discrete linear model**.
-   The quadratic programme is solved with **SciPy** (`scipy.optimize.minimize`,
-   method `L-BFGS-B`).
-2. **Heater twin** (`twin/ibh.py`), authored with **CasADi**. This is the
-   physics heat-balance step used as a simulation plant. It is not the QP solver.
-
-## Plant model (for the MPC)
-
-The MPC predicts with a SISO discrete linear model
-(`IdentifiedLinearModel` in `identified.py`):
-
 ```text
-y[k+1] = a * y[k] + b * u[k] + d_hat
+ encoder (+noise) ─┐                     ┌─ PID / optimised PID ─┐
+ current sensor ───┼─► controller ──V_cmd┤                       ├─► motor drive ──V_a──► PMDC motor twin
+                   └─► offset-free MPC ──┘                       │   (V sat, slew,        (RK4, 1 ms)
+                        (SciPy SLSQP)                            │    current protection)
+                                                                 └─ same drive, plant, inputs for all three
 ```
 
-- `a`, `b`, `dt_s`, `n_samples`, `residual_rms`, and `experiment` come from an
-  identification experiment. The module never invents them.
-- `b` must be non-zero; `dt_s` must be positive; `n_samples` must be at least 3.
-- In the unit tests the illustrative ARX is `a = 0.9`, `b = 0.05`, `dt_s = 1.0`
-  (steady-state gain `b / (1 - a) = 0.5`). Those are test-only values, not
-  plant numbers.
+Four things, kept separate in code:
 
-Offset-free behaviour uses an integrating disturbance `d_hat`
-(Pannocchia and Rawlings, 2003), refreshed each run from the one-step
-innovation (`refresh_disturbance`):
-
-- First run (no previous `y` or `u`):  
-  `d0 = (1 - a) * y_meas - b * u_current`
-- Later runs:  
-  `y_pred = a * last_y + b * last_u + d_hat`, then  
-  `d_hat ← d_hat + (y_meas - y_pred)`
-
-## Cost function
-
-For a candidate held input `u` over the horizon, the predictor rolls
-
-```text
-y ← a * y + b * u + d_hat
-```
-
-for `horizon_steps` steps. The cost is the sum of squared tracking errors:
-
-```text
-J(u) = sum_i (y_i - y_ref)^2
-```
-
-There is **no move-weight term** in this coursework controller. The module
-docstring states that explicitly so that nothing is invented.
-
-Decision variables: a **single** held input for the whole horizon (one degree
-of freedom for this SISO implementation).
-
-## Constraints
-
-From `SetpointLimits` and the current input `u0`:
-
-- Window: `low <= u <= high`
-- Rate: `|u - u0| <= max_step`
-- Combined box passed to the solver:  
-  `lo = max(low, u0 - max_step)`, `hi = min(high, u0 + max_step)`
-- If `lo > hi`, the solver raises (no feasible setting within one step).
-
-Active constraints reported after the solve:
-
-- `{setpoint_id}.window` if `u_star` sits on `low` or `high`
-- `{setpoint_id}.max_step` if `|u_star - u0|` equals `max_step`
-
-Illustrative test window: `low = 900`, `high = 1100`, `max_step = 50`, unit
-`kW`, setpoint id `power_setpoint`.
-
-## Solver
-
-- Library: SciPy
-- Method: `L-BFGS-B` with bounds `[(lo, hi)]`
-- Initial guess: current `u0` clipped into `[lo, hi]`
-- Wall-clock limit: `time_limit_s`. The objective checks `time.monotonic()`
-  and raises `MpcTimedOut` if the deadline passes.
-- Returns the **first-move** proposal (the held `u_star`), the reference,
-  `d_hat`, the predicted `y` sequence, active constraints, and the updated
-  `MpcState`.
-
-Horizon and solver time limit are required function arguments.
-
-## Prediction and control horizons
-
-The prediction horizon is `horizon_steps`. The control move is a single held
-value for that whole horizon (control horizon effectively one block of length
-`horizon_steps`).
-
-Illustrative values used in the lab defaults (`default_demo_config`):
-
-- `horizon_steps = 40` (power-limit scenario overrides to 45)
-- `terminal_weight = 50` (terminal tracking penalty on the last predicted step)
-- `control_horizon = 1`, `move_weight = 0` (single held move; L-BFGS-B)
-- reference preview on in `run_closed_loop` (`mpc_preview=True`)
-- `solver_time_limit_s = 2.0`
-
-Core unit tests may still call `solve(...)` with a shorter horizon (for example 20).
-`horizon_steps` must be an integer at least 1.
-
-## Tuning (what the code exposes)
-
-| Knob | Where | Notes |
+| Piece | File | Notes |
 | --- | --- | --- |
-| `a`, `b`, `dt_s` | `IdentifiedLinearModel` | From identification; refused if `b == 0` |
-| `horizon_steps` | `solve(...)` / `DemoConfig` | Positive integer; lab default 40 |
-| `y_ref` or `y_ref_traj` | `solve(...)` | Scalar reference or length-`N` preview trajectory |
-| `terminal_weight` | `solve(...)` / `DemoConfig` | Extra weight on the last step error; lab default 50 |
-| `move_weight` | `solve(...)` / `DemoConfig` | Penalty on input moves when `control_horizon > 1` |
-| `observer_gain` | `solve(...)` / simulator | Scales the `d_hat` innovation update; lab default 1.0 |
-| `solver_time_limit_s` | `solve(...)` | Soft deadline via `MpcTimedOut` |
-| `low`, `high`, `max_step` | `SetpointLimits` | Passed in by caller |
-| Model card | `model_card.py` | Optional gate: held-out residual under `max_held_out_rms`, `b != 0` |
+| Actual plant | `twin/pmdc.py`, `sim/plant.py` | `PMDCParams` is the only home of motor numbers. CasADi RK4 step plus a scalar Python RK4 that tests prove identical. |
+| Prediction model | `identified.py` (`MotorStateSpaceModel`) | 2-state `[i_a, omega]` ZOH model of the **nominal** motor. |
+| Drive | `sim/drive.py` | Enable/e-stop, slew limit, voltage saturation, current protection. Shared by every controller. |
+| Measurement | `sim/simulate.py` (`build_inputs`) | Speed with seeded Gaussian noise; ideal current sensor. |
 
-Reference preview feeds the upcoming setpoint trajectory into the predictor so the
-held move can rise before a step arrives. Offset-free `d_hat` still applies a
-(gain-scaled) innovation correction each sample.
+## Timing
 
-## CasADi plant twin (heater)
+The controller runs every 10 ms (`DemoConfig.dt_s`). The plant integrates with
+RK4 at 1 ms (`plant_dt_s`), 10 sub-steps per sample, holding the applied voltage.
+`DemoConfig.__post_init__` requires `dt_s` to be an integer multiple of `plant_dt_s`.
 
-Separate from the QP. The heat balance is
+## The MPC (`mpc.py`, `mpc_motor.py`)
 
-```text
-m * c_p * dT/dt = eta * P_coil - U * (T - T_amb)
-```
+`mpc.solve(...)` accepts two model types. `IdentifiedLinearModel` is the original
+SISO first-order ARX (kept for the generic tests). `MotorStateSpaceModel`
+dispatches to `mpc_motor.solve_motor`:
 
-Explicit Euler step in CasADi (`ibh_step_function` / `step_ibh`):
+- **Model.** `x+ = Ad x + Bd (V + d_v) + Ed d_t`, state `[i_a, omega]`, from the
+  nominal motor by matrix exponential. Prediction matrices are built once per
+  (motor, horizon) and cached.
+- **Observer.** `refresh_torque` maps the one-step current and speed innovations to a
+  load-torque estimate `d_hat` and an armature-voltage estimate `d_v` with scalar
+  gain `observer_gain`. Both are needed: torque alone leaves an offset under
+  resistance mismatch.
+- **Decisions.** `control_horizon` voltage moves with block lengths 1, 2, 4, … and a
+  long last block (`blocking_matrix`). Horizon default 60 samples (0.6 s).
+- **Cost.** `q Σ(ω−r)² + q_T (ω_N−r_N)² + r Σ ΔV²` in RPM² and V², with reference
+  preview (`y_ref_traj`). Defaults: `q = 1`, `q_T = 50`, `r = 5000`.
+- **Constraints.** Voltage box; voltage change between moves ≤ `max_step`
+  (slew × Ts); predicted `|i_a| ≤ i_max` over the whole horizon. They are linear, so
+  SLSQP gets exact Jacobians. If the current bound is infeasible from the present
+  state, the solver drops it and the drive's protection acts.
+- **Numerics.** The objective is scaled by `1e-6`; without it SLSQP's line search
+  fails on RPM²-sized costs next to O(1) constraints.
+- `MpcTimedOut` still guards the wall-clock budget (`solver_time_limit_s`).
 
-```text
-T_next = T + dt * (eta * P - U * (T - T_amb)) / (m * c_p)
-```
+Typical solve time is 1–5 ms.
 
-Parameter names (all must be set; no defaults): `m_kg`, `c_p_j_per_kg_k`,
-`eta`, `U_w_per_k`, `T_amb_c`.
+## The drive (`sim/drive.py`)
 
-Illustrative fixture used in tests (not plant defaults):
-`m_kg = 2.0`, `c_p_j_per_kg_k = 500.0`, `eta = 0.5`, `U_w_per_k = 10.0`,
-`T_amb_c = 25.0`. With `T = 25`, `P = 1000`, `dt = 1` the step gives
-`T_next = 25.5`.
+Order each sample: enable/e-stop → slew limit → ±`V_max`·bus level → current window.
+The window keeps the exact one-sample electrical response inside `±I_max` using
+the drive's nominal `R_a`, `K_e` and the measured current and speed; a measured-excess
+feedback term backs off further if the real winding differs. `MotorDrive` also
+exposes `enable()`, `disable()` (ramped), `emergency_stop()` (latched) and `reset()`.
+`DriveFlags` (`v_saturated`, `i_limited`, `slew_limited`) feed the metrics.
 
-`codegen.py` can emit a matching C function `ibh_step` and header
-`ibh_step.h` under `include/ibh/` for embedded runtimes. CasADi itself is not
-vendored; install `casadi==3.8.2` from PyPI (LGPL-3.0).
+## PID (`sim/pid.py`) and optimised PID (`sim/pid_tune.py`)
+
+Positional PID, RPM in, volts out. Filtered derivative on the measurement.
+Back-calculation anti-windup against the voltage the drive actually applied.
+`tune_pid_gains` runs L-BFGS-B (three scaled starts, coarse finite-difference step)
+on the composite objective in `TuneWeights` (IAE, overshoot, settling, effort,
+voltage-saturation time, current-limit time). `playground.baseline_optimized_pid`
+tunes once on `speed_tracking` and freezes the result in `data/ui/optimized_pid.json`.
+
+## Simulation (`sim/simulate.py`)
+
+`run_closed_loop(scenario, controller, cfg, options=...)` is the only closed-loop
+path. It builds the reference, load, bus and noise arrays once (`build_inputs`),
+starts the plant in steady state at the scenario's initial speed and load, and
+loops: measure → controller → drive → RK4 sub-steps. `RunOptions` can override noise
+and plant scaling. Controllers always use `cfg.model`, the nominal motor.
+`run_mpc_step_log` records predictions for the Step-through page.
+
+## Scenarios and playground
+
+`sim/scenarios.py` holds the ten named scenarios and profile builders
+(`piecewise`, `sinusoid`, `bounded_random`, `add`). `sim/playground.py` turns the
+Playground sliders (`PlaygroundParams`) into a scenario, defines the preset buttons
+and `run_triple` (MPC, PID, frozen optimised PID).
+
+## UI
+
+`app.py` is a thin `st.navigation` entry point over `ui_pages/`. Pages read
+precomputed JSON from `data/ui/` (`sim/ui_cache.py`); a cache miss, such as custom
+motor parameters, simulates live. `sim/motor_view.py` builds the self-contained
+2D shaft animation (HTML/SVG/JS); `sim/plotly_charts.py` the figures.
+`scripts/precompute_ui_data.py` regenerates all cached data and re-tunes and
+freezes the optimised PID.
+
+## Tuning knobs
+
+| Knob | Where | Effect |
+| --- | --- | --- |
+| `horizon_steps`, `control_horizon` | `DemoConfig` | Look-ahead (samples of 10 ms) and number of free moves |
+| `tracking_weight`, `terminal_weight`, `move_weight` | `DemoConfig` | Speed error vs smoothness |
+| `observer_gain` | `DemoConfig` | Load-step recovery vs encoder-noise sensitivity (default 0.1) |
+| `DriveConfig` | `sim/drive.py` | `V_max`, `I_max`, slew, converter efficiency |
+| `TuneWeights` | `sim/pid_tune.py` | What "optimised" means for the PID |
 
 ## How to run
 
 ```bash
-pip install -r requirements.txt && pip install -e .
-pytest
-python examples/run_mpc_demo.py
-python examples/run_simulations.py
+pip install -r requirements.txt && pip install -e ".[dev]"
+python -m pytest -q
+python examples/run_simulations.py        # all scenarios -> results/
+python scripts/precompute_ui_data.py      # UI cache + frozen PID gains
 streamlit run app.py
 ```
-
-The demo drives the illustrative ARX with the offset-free solver for a few
-steps, then runs one CasADi heater twin step with the fixture parameters above.
-Simulations write comparison plots to `results/`.

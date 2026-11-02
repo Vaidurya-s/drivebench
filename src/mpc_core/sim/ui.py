@@ -1,4 +1,4 @@
-"""Streamlit UI helpers mapped from DESIGN.md (MPC Heater Lab)."""
+"""Streamlit UI helpers mapped from DESIGN.md (DC Motor Control Lab)."""
 
 from __future__ import annotations
 

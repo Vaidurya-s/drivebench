@@ -33,7 +33,7 @@ def _base_layout(**kwargs) -> dict:
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.12,
+            y=1.06,
             x=0,
             font=dict(size=13),
         ),
@@ -66,171 +66,120 @@ def triple_control_figure(
     mpc: SimulationResult,
     pid: SimulationResult,
     opt_pid: SimulationResult,
-    u_min: float,
-    u_max: float,
     step_at_s: float | None = None,
-    disturbance_at_s: float | None = None,
+    load_change_at_s: float | None = None,
 ) -> go.Figure:
-    from mpc_core.sim.presentation import PRESENTATION_DEMO
+    """Speed, armature current, voltage and torque for all three controllers.
 
-    # In the presentation deck, draw MPC on top and a touch heavier so it reads first.
-    mpc_w = 3.0 if PRESENTATION_DEMO else 2.5
-    other_w = 1.7 if PRESENTATION_DEMO else 2.0
+    One shared time axis; the current and voltage panels show the drive limits
+    as dashed lines.
+    """
+    mpc_w, other_w = 2.6, 1.9
     fig = make_subplots(
-        rows=2,
+        rows=4,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.1,
-        subplot_titles=("Temperature", "Heater power"),
+        vertical_spacing=0.06,
+        subplot_titles=(
+            "Motor speed",
+            "Armature current",
+            "Applied armature voltage",
+            "Electromagnetic and load torque",
+        ),
     )
     t = mpc.time_s
     fig.add_trace(
         go.Scatter(
             x=t,
-            y=mpc.y_ref,
-            name="Setpoint",
+            y=mpc.ref_rpm,
+            name="Reference",
             line=dict(dash="dash", color=TEXT_PRIMARY, width=1.5),
         ),
         row=1,
         col=1,
     )
-    # PID / Opt first, MPC last so the winner sits on top of the stack.
-    fig.add_trace(
-        go.Scatter(x=t, y=pid.y_c, name="PID", line=dict(color=PID_COLOR, width=other_w)),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=t,
-            y=opt_pid.y_c,
-            name="Optimized PID",
-            line=dict(color=OPT_PID_COLOR, width=other_w),
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=t, y=mpc.y_c, name="MPC", line=dict(color=MPC_COLOR, width=mpc_w)),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=t,
-            y=pid.u_kw,
-            name="PID power",
-            line=dict(color=PID_COLOR, width=other_w),
-            showlegend=False,
-        ),
-        row=2,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=t,
-            y=opt_pid.u_kw,
-            name="Opt. PID power",
-            line=dict(color=OPT_PID_COLOR, width=other_w),
-            showlegend=False,
-        ),
-        row=2,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=t,
-            y=mpc.u_kw,
-            name="MPC power",
-            line=dict(color=MPC_COLOR, width=mpc_w),
-            showlegend=False,
-        ),
-        row=2,
-        col=1,
-    )
-    for yv in (u_min, u_max):
-        fig.add_hline(
-            y=yv,
-            line_dash="dash",
-            line_color=TEXT_MUTED,
-            line_width=1,
-            row=2,
+    # PID / Opt first, MPC last so it sits on top of the stack.
+    for name, run, color, w in (
+        ("PID", pid, PID_COLOR, other_w),
+        ("Optimized PID", opt_pid, OPT_PID_COLOR, other_w),
+        ("MPC", mpc, MPC_COLOR, mpc_w),
+    ):
+        fig.add_trace(
+            go.Scatter(x=t, y=run.speed_rpm, name=name, line=dict(color=color, width=w)),
+            row=1,
             col=1,
         )
-
-    if step_at_s is not None and step_at_s > 0:
-        for row in (1, 2):
-            fig.add_vline(
-                x=step_at_s,
-                line_dash="dot",
-                line_color=TEXT_MUTED,
-                line_width=1,
+        for row, y in ((2, run.i_a), (3, run.v_applied), (4, run.torque_nm)):
+            fig.add_trace(
+                go.Scatter(
+                    x=t,
+                    y=y,
+                    name=name,
+                    line=dict(color=color, width=w),
+                    showlegend=False,
+                ),
                 row=row,
                 col=1,
             )
+    fig.add_trace(
+        go.Scatter(
+            x=t,
+            y=mpc.load_nm,
+            name="Load torque",
+            line=dict(color=COPPER, width=1.6, dash="dot"),
+        ),
+        row=4,
+        col=1,
+    )
+    for sign in (-1, 1):
+        fig.add_hline(
+            y=sign * mpc.i_max, line_dash="dash", line_color=TEXT_MUTED, line_width=1, row=2, col=1
+        )
+        fig.add_hline(
+            y=sign * mpc.v_max, line_dash="dash", line_color=TEXT_MUTED, line_width=1, row=3, col=1
+        )
+
+    for x, color, label, ypos in (
+        (step_at_s, TEXT_MUTED, "Reference step", 1.02),
+        (load_change_at_s, COPPER, "Load change", 0.98),
+    ):
+        if x is None or x <= 0:
+            continue
+        for row in (1, 2, 3, 4):
+            fig.add_vline(x=x, line_dash="dot", line_color=color, line_width=1.2, row=row, col=1)
         fig.add_annotation(
-            x=step_at_s,
-            y=1.02,
+            x=x,
+            y=ypos,
             yref="paper",
-            text="Setpoint step",
+            text=label,
             showarrow=False,
-            font=dict(size=11, color=TEXT_MUTED),
+            font=dict(size=11, color=color),
             xanchor="left",
         )
 
-    if disturbance_at_s is not None and disturbance_at_s > 0:
-        for row in (1, 2):
-            fig.add_vline(
-                x=disturbance_at_s,
-                line_dash="dot",
-                line_color=COPPER,
-                line_width=1.5,
-                row=row,
-                col=1,
-            )
-        fig.add_annotation(
-            x=disturbance_at_s,
-            y=0.98,
-            yref="paper",
-            text="Disturbance",
-            showarrow=False,
-            font=dict(size=11, color=COPPER),
-            xanchor="left",
-        )
-
-    fig.update_yaxes(title_text="°C", row=1, col=1)
-    fig.update_yaxes(title_text="kW", row=2, col=1)
-    fig.update_xaxes(title_text="Time [s]", row=2, col=1)
-    fig.update_layout(**_base_layout(height=640))
+    fig.update_yaxes(title_text="RPM", row=1, col=1)
+    fig.update_yaxes(title_text="A", row=2, col=1)
+    fig.update_yaxes(title_text="V", row=3, col=1)
+    fig.update_yaxes(title_text="N m", row=4, col=1)
+    fig.update_xaxes(title_text="Time [s]", row=4, col=1)
+    fig.update_layout(**_base_layout(height=860))
     fig.update_annotations(font=dict(size=14, color=TEXT_SECONDARY))
     _style_axes(fig)
     return fig
 
 
-def mpc_horizon_figure(snapshot) -> go.Figure:
-    """Fan of predicted temperature from one MPC step."""
+def mpc_horizon_figure(snapshot, ts_s: float = 0.01) -> go.Figure:
+    """Predicted speed and armature current over the horizon for one MPC step."""
     h = len(snapshot.predicted_y)
-    future_t = [snapshot.time_s + i for i in range(1, h + 1)]
-    fig = go.Figure()
-
-    # Soft past / future bands only (no overlapping annotation text).
-    fig.add_vrect(
-        x0=snapshot.time_s - 8,
-        x1=snapshot.time_s,
-        fillcolor=BORDER,
-        opacity=0.35,
-        layer="below",
-        line_width=0,
+    future_t = [snapshot.time_s + (i + 1) * ts_s for i in range(h)]
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.1,
+        row_heights=[0.65, 0.35],
+        subplot_titles=("Predicted speed", "Predicted armature current"),
     )
-    fig.add_vrect(
-        x0=snapshot.time_s,
-        x1=future_t[-1] if future_t else snapshot.time_s + 1,
-        fillcolor=COBALT,
-        opacity=0.04,
-        layer="below",
-        line_width=0,
-    )
-
     fig.add_trace(
         go.Scatter(
             x=[snapshot.time_s],
@@ -238,53 +187,49 @@ def mpc_horizon_figure(snapshot) -> go.Figure:
             mode="markers",
             name="Measured now",
             marker=dict(size=14, color=ACCENT, line=dict(width=2, color=TEXT_PRIMARY)),
-        )
+        ),
+        row=1,
+        col=1,
     )
     fig.add_trace(
         go.Scatter(
             x=future_t,
             y=snapshot.predicted_y,
-            mode="lines+markers",
-            name="Predicted temperature",
+            mode="lines",
+            name="Predicted speed",
             line=dict(color=ACCENT, width=2.5),
-            marker=dict(size=6, color=ACCENT),
-        )
+        ),
+        row=1,
+        col=1,
     )
-    if future_t:
-        fig.add_trace(
-            go.Scatter(
-                x=[future_t[0]],
-                y=[snapshot.predicted_y[0]],
-                mode="markers",
-                name="After first move",
-                marker=dict(size=12, symbol="diamond", color=ACCENT),
-                showlegend=True,
-            )
-        )
     fig.add_hline(
         y=snapshot.y_ref,
         line_dash="dash",
         line_color=TEXT_PRIMARY,
         line_width=1.5,
-        annotation_text="Setpoint",
+        annotation_text="Reference",
         annotation_position="top right",
         annotation_font=dict(size=12, color=TEXT_PRIMARY),
+        row=1,
+        col=1,
     )
-    fig.update_layout(
-        **_base_layout(
-            height=460,
-            xaxis_title="Time [s]",
-            yaxis_title="Temperature [°C]",
-            margin=dict(l=56, r=24, t=72, b=48),
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                x=0,
-                bgcolor="rgba(250,250,249,0.92)",
+    if snapshot.predicted_i:
+        fig.add_trace(
+            go.Scatter(
+                x=future_t,
+                y=snapshot.predicted_i,
+                mode="lines",
+                name="Predicted current",
+                line=dict(color=COPPER, width=2.2),
             ),
+            row=2,
+            col=1,
         )
-    )
+    fig.update_yaxes(title_text="RPM", row=1, col=1)
+    fig.update_yaxes(title_text="A", row=2, col=1)
+    fig.update_xaxes(title_text="Time [s]", row=2, col=1)
+    fig.update_layout(**_base_layout(height=560, margin=dict(l=56, r=24, t=72, b=48)))
+    fig.update_annotations(font=dict(size=13, color=TEXT_SECONDARY))
     _style_axes(fig)
     return fig
 
@@ -297,7 +242,7 @@ def metrics_bar_chart(
     y_title: str | None = None,
 ) -> go.Figure:
     colors = [controller_color(label) for label in labels]
-    text = [f"{v:.0f}" if abs(v) >= 10 else f"{v:.1f}" for v in values]
+    text = [f"{v:.0f}" if abs(v) >= 10 else f"{v:.2g}" for v in values]
     fig = go.Figure(
         go.Bar(
             x=labels,
@@ -310,9 +255,9 @@ def metrics_bar_chart(
     )
     fig.update_layout(
         **_base_layout(
-            title=dict(text=title, font=dict(size=16, color=TEXT_PRIMARY)),
-            height=340,
-            margin=dict(l=40, r=20, t=60, b=40),
+            title=dict(text=title, font=dict(size=15, color=TEXT_PRIMARY)),
+            height=300,
+            margin=dict(l=40, r=20, t=56, b=40),
             showlegend=False,
             yaxis_title=y_title,
         )
@@ -337,33 +282,19 @@ def grouped_metrics_figure(
     title: str,
 ) -> go.Figure:
     """Side-by-side controller bars for several metrics on one figure."""
-    from mpc_core.sim.presentation import PRESENTATION_DEMO
-
     fig = go.Figure()
     metric_names = list(metrics.keys())
-    draw_order = list(controllers)
-    if PRESENTATION_DEMO and any(c.strip().lower() == "mpc" for c in controllers):
-        draw_order = [c for c in controllers if c.strip().lower() != "mpc"] + [
-            c for c in controllers if c.strip().lower() == "mpc"
-        ]
-    for ctrl in draw_order:
-        idx = controllers.index(ctrl)
+    for idx, ctrl in enumerate(controllers):
         ys = [metrics[m][idx] for m in metric_names]
-        is_mpc = ctrl.strip().lower() == "mpc"
         fig.add_trace(
             go.Bar(
                 name=ctrl,
                 x=metric_names,
                 y=ys,
                 marker_color=controller_color(ctrl),
-                marker_line=dict(
-                    width=1.5 if (PRESENTATION_DEMO and is_mpc) else 0,
-                    color=MPC_COLOR if is_mpc else "rgba(0,0,0,0)",
-                ),
-                text=[f"{v:.0f}" if abs(v) >= 10 else f"{v:.1f}" for v in ys],
+                text=[f"{v:.0f}" if abs(v) >= 10 else f"{v:.2g}" for v in ys],
                 textposition="outside",
                 cliponaxis=False,
-                opacity=1.0 if (not PRESENTATION_DEMO or is_mpc) else 0.88,
             )
         )
     layout_kwargs: dict = dict(
@@ -373,14 +304,7 @@ def grouped_metrics_figure(
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, xanchor="left"),
     )
     if title:
-        layout_kwargs["title"] = dict(
-            text=title, font=dict(size=16, color=TEXT_PRIMARY), y=0.98
-        )
-        layout_kwargs["margin"] = dict(l=40, r=20, t=72, b=48)
-        layout_kwargs["legend"] = dict(
-            orientation="h", yanchor="top", y=-0.2, x=0, xanchor="left"
-        )
-        layout_kwargs["margin"] = dict(l=40, r=20, t=56, b=72)
+        layout_kwargs["title"] = dict(text=title, font=dict(size=16, color=TEXT_PRIMARY), y=0.98)
     fig.update_layout(**_base_layout(**layout_kwargs))
     _style_axes(fig)
     return fig

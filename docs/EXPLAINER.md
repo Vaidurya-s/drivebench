@@ -1,202 +1,102 @@
 # What this project is doing (plain explainer)
 
-> **Companion:** maths and industrial-control detail → [THEORY.md](THEORY.md)  
+> **Companion:** maths and industrial-control detail → [THEORY.md](THEORY.md)
 > Short engineering reference → [HOW-IT-WORKS.md](../HOW-IT-WORKS.md) · Results narrative → [report/report.md](../report/report.md)
 
-All numbers in this lab are **illustrative coursework values**, not a real customer plant.
+All numbers in this lab are **illustrative coursework values**, not a real customer motor.
 
 ---
 
 ## In one sentence
 
-Every second, the controller looks a short way into the future with a model of the heater, tries candidate coil-power plans that respect power limits, picks the plan whose predicted temperature stays closest to the target, applies **only the first step** of that plan, then measures the real temperature and does it again.
+Ten times a second, the controller uses a model of the motor to imagine the next few tenths of a second, tries voltage plans that respect the drive's limits, picks the plan whose predicted speed stays closest to the target, applies **only the first step** of that plan, then measures the real speed and current and does it again.
 
 ## The picture to hold
 
-You are driving toward a destination on a winding road (the temperature you want). A normal thermostat only reacts when you are already too hot or too cold. This controller is like glancing at a map for the next few bends: it imagines “if I set the heater power like *this*, where will temperature be in the next half-minute?”, refuses plans that would demand illegal power, then turns the wheel once and looks again.
+Think of a conveyor belt that must run at a steady speed while boxes are loaded on and off. Loading boxes is extra drag (load torque): the belt slows down unless the controller gives the motor more voltage. A simple speed controller (PID) only reacts after the belt has already slowed. MPC is more like a driver who watches the road ahead: it knows how the motor responds, so it can plan the voltage, and it knows the drive will not allow more than 8 A, so it never asks for a plan that would hit that wall.
 
-That look-ahead loop is what people call **model predictive control** (MPC).
+That look-ahead loop is **model predictive control** (MPC).
 
 ---
 
-## The four boxes on the infographic
+## The boxes on the infographic
 
 The repo banner diagram is the same story in engineering boxes. Walk them in the order the controller thinks.
 
 ### 1. Optimisation (the decision box)
 
-**What it does:** scores many candidate power plans and picks the best one that still obeys the rules.
+Scores many candidate voltage plans and picks the best one that still obeys the rules.
 
-**Rules here:** coil power must stay inside a allowed window, and it cannot jump by more than a maximum step from the current power. The “score” is how far the *predicted* temperature would sit from the temperature you asked for (the **setpoint**), over a short future window called the **horizon**.
+**Rules here:** armature voltage stays within ±24 V, it cannot change faster than the slew limit, and the predicted armature current must stay below 8 A. The "score" is how far the *predicted* speed would sit from the speed you asked for, over a horizon of 0.6 s.
 
-**In this project:** SciPy’s `L-BFGS-B` optimiser does that search inside [`src/mpc_core/mpc.py`](../src/mpc_core/mpc.py). It does **not** talk to the real heater directly — it only talks to the simulation model below.
+**In this project:** SciPy's SLSQP does the search inside [`mpc_motor.py`](../src/mpc_core/mpc_motor.py). It never touches the real motor, only the model below.
 
 ### 2. Simulation model (the imagination)
 
-**What it does:** answers “if I apply this power sequence, what temperature trajectory do I get?”
-
-**Important split in this lab:**
+Answers "if I apply this voltage sequence, what current and speed do I get?"
 
 | Piece | Role | Code |
 | --- | --- | --- |
-| **MPC simulation model** | Fast linear guess used *inside* the optimiser | Identified model in `identified.py`, rolled forward in `mpc.py` |
-| **Plant / heater twin** | Stand-in for the *real* heater in closed-loop demos | Nonlinear heat-balance step in `twin/ibh.py` |
+| **MPC prediction model** | Small, fast model of the *nominal* motor used inside the optimiser | `MotorStateSpaceModel` in `identified.py` |
+| **Plant (motor twin)** | The stand-in for the real motor in the closed-loop demo, possibly with different resistance, inertia or friction | `twin/pmdc.py`, `sim/plant.py` |
+| **Drive** | The power electronics: voltage ceiling, slew limit, current protection. Sits between every controller and the motor. | `sim/drive.py` |
+| **Measurement** | Encoder (noisy speed) and current sensor | `sim/simulate.py` |
 
-The optimiser plans with the linear model. The demo then applies power to the nonlinear twin (plus optional noise and disturbances). That mismatch is intentional — industrial controllers rarely get a perfect model.
+The optimiser plans with the nominal model; the demo then runs it on a plant that may be different. That mismatch is intentional: real controllers rarely get a perfect model.
 
-### 3. Input prediction (planned power over the horizon)
+### 3. Input prediction (planned voltage over the horizon)
 
-**What it is:** a sequence of future coil-power values the optimiser is considering, from “now” out to the end of the horizon.
+A sequence of future voltage values the optimiser is considering: fine steps right now, coarser steps later. Only the **first** value is sent to the drive. The rest is thrown away and recomputed next sample. That discard-and-replan habit is the **receding horizon**.
 
-By default this lab uses a simple plan shape: a small number of free power moves (often **one**), then hold the last value for the rest of the horizon. Only the **first** planned power is sent to the plant. The rest of the sequence is discarded and recomputed next sample. That discard-and-replan habit is the **receding horizon**.
+### 4. State prediction (planned speed and current)
 
-### 4. State prediction (planned temperature over the horizon)
-
-**What it is:** the temperature trajectory the simulation model expects if that input plan were followed.
-
-The optimiser keeps adjusting the input plan until the state prediction hugs the setpoint as well as the constraints allow. Those prediction charts are what the Streamlit **Step-through** page shows for one MPC tick.
-
-```mermaid
-flowchart TB
-  setpoint[Setpoint]
-  subgraph mpc [Model_predictive_controller]
-    opt[Optimisation]
-    simModel[Simulation_model]
-    inputPred[Input_prediction]
-    statePred[State_prediction]
-    opt --> inputPred
-    inputPred --> simModel
-    simModel --> statePred
-    statePred --> opt
-  end
-  plant[Heater_plant]
-  disturbance[Disturbance]
-  setpoint --> opt
-  plant -->|"measured_temperature"| opt
-  opt -->|"first_power_move"| plant
-  disturbance --> plant
-```
+What the model expects if that voltage plan were followed. The Step-through page shows these predictions for one MPC tick: the speed curve and the armature current, which is kept under the limit.
 
 ---
 
 ## The loop that never stops
 
-One control tick, in order:
-
-1. **Measure** the current temperature (and know the current power).
-2. **Update a disturbance guess** so slow model error and load changes do not leave a permanent offset (this lab’s “offset-free” piece).
-3. **Propose** candidate power plans that respect window and rate limits.
-4. **Predict** temperature for each plan with the linear model.
-5. **Choose** the plan with the best score.
-6. **Apply** only the first power of that plan to the plant.
-7. Wait one sample time, then go back to step 1.
-
-```mermaid
-flowchart LR
-  measure[Measure] --> correct[Correct_disturbance]
-  correct --> propose[Propose_plans]
-  propose --> predict[Predict_temperature]
-  predict --> choose[Choose_best]
-  choose --> apply[Apply_first_move]
-  apply --> measure
-```
-
----
-
-## What this repository actually wires together
-
-```mermaid
-flowchart TB
-  scenario[Scenario_setpoint_and_events]
-  subgraph controllers [Controllers]
-    mpcCtrl[MPC]
-    pidCtrl[PID]
-    optPid[Optimised_PID_gains]
-  end
-  plantTwin[CasADi_heater_twin]
-  metrics[Metrics_and_plots]
-  scenario --> mpcCtrl
-  scenario --> pidCtrl
-  optPid --> pidCtrl
-  mpcCtrl -->|"power"| plantTwin
-  pidCtrl -->|"power"| plantTwin
-  plantTwin -->|"temperature"| mpcCtrl
-  plantTwin -->|"temperature"| pidCtrl
-  plantTwin --> metrics
-```
-
-- **Closed-loop runner:** [`src/mpc_core/sim/simulate.py`](../src/mpc_core/sim/simulate.py) — same plant, noise options, and limits for fair comparison.
-- **Interactive lab:** `streamlit run app.py` — Playground, Step-through, Scorecard.
-- **Batch figures:** `examples/run_simulations.py` → `results/`.
-
-You can run three controller stories on the same heater story:
-
-| Controller | Behaviour in one line |
-| --- | --- |
-| **MPC** | Plans ahead with a model; hard power limits inside the optimiser |
-| **PID** | Reacts to the temperature error now / over time / how fast it is changing; no preview |
-| **Optimised PID** | Still a PID online, but its three gains were chosen offline by an optimiser on the same scenario |
+1. **Measure** speed (encoder) and current.
+2. **Estimate** what the model is missing: extra load torque, and any electrical error. This is how MPC avoids a lasting speed error even when the load is not what it assumed.
+3. **Plan** a voltage sequence for the next 0.6 s.
+4. **Apply** the first voltage. The drive trims it if it is too fast, too high or would push the current past the limit.
+5. The motor responds; go back to step 1.
 
 ---
 
 ## PID, without the mystique
 
-A **PID** controller does not invent future plans. Each sample it looks at the **error** (setpoint minus measured temperature) and builds a power command from three pieces:
-
-- **P (proportional):** how far off you are *right now* — big gap, bigger nudge.
-- **I (integral):** how long you have been a bit off — closes the last stubborn gap.
-- **D (derivative):** how fast the error is changing — brakes before you overshoot.
-
-In this lab, [`src/mpc_core/sim/pid.py`](../src/mpc_core/sim/pid.py) also **clips** power to limits and uses **anti-windup** so the integral does not keep winding up while the heater is already at max power.
+PID looks at the speed error now (P), the error summed up over time (I) and how fast the speed is changing (D), and turns that into a voltage. It is simple and reliable, but it does not know about limits until it hits them, and the "I" part can build up while the drive is limiting (**windup**). Here PID has a filtered D term and anti-windup that watches what voltage the drive *actually* applied.
 
 ### Optimised PID
 
-Hand-picked gains are one baseline. **Optimised PID** keeps the same online law, but [`src/mpc_core/sim/pid_tune.py`](../src/mpc_core/sim/pid_tune.py) searches for gains that minimise a cost: mainly **IAE** (integrated absolute error) plus a penalty if the run violates power or rate limits.
-
-So “optimised PID” means *offline tuning by optimisation*, not a second predictive controller. It is a strong, honest baseline: it can beat MPC on raw error when retuned for that exact scenario, but it still has **no horizon preview**, and you pay that tuning cost again when the regime changes.
+The same PID, but the three gains were found by a computer search that scores speed error, overshoot, settling time, voltage effort and time spent in the voltage or current limit. The search ran **once**, on a speed-tracking test, and the gains are then frozen for every comparison. A real engineer does not retune a drive for every load change either.
 
 ---
 
 ## Explain it to a friend
 
-Use this script almost verbatim:
-
-> We built a small induction-heater lab in software. The “real” heater is a heat-balance twin: power in, heat loss out, temperature moves.  
-> Against that twin we run three controllers. A PID turns the power up or down from the temperature error. An optimised PID is the same idea with gains found by a search.  
-> MPC is different: every second it uses a simple model to predict temperature under candidate power plans, refuses illegal plans, picks the best one, applies only the first power setting, then remeasures and replans.  
-> The point of the coursework is to see when preview and hard constraints help, and when a well-tuned PID still competes.
-
----
+"The controller is a driver who knows how the motor reacts and sees the speed limit sign ahead. A normal controller steers by what just happened. This one steers by what it expects to happen, and it never plans through a wall the drive would refuse to cross."
 
 ## Where the picture breaks
 
-- The **map** (linear model) is not the **road** (nonlinear twin). Bad models shrink MPC’s advantage — the lab has a model-mismatch scenario for that.
-- Default MPC plans are deliberately simple (few free moves, then hold). Full industrial MPC can free every step and add move penalties; this coursework keeps the decision small.
-- We constrain **power**, not temperature. A plant that must never exceed a metal temperature limit would need extra constraint machinery.
-- Parameters and gains are coursework illustrations. Do not treat plots as a site acceptance test.
-
----
+- The motor model is linear, with constant parameters; real motors have brush drop, saturation and temperature effects.
+- The drive is ideal apart from its limits and a fixed efficiency.
+- MPC here is single-input, single-output with hand-chosen weights.
 
 ## Words introduced here
 
-| Word | Meaning in this project |
+| Word | Meaning |
 | --- | --- |
-| **Setpoint** | The temperature you want |
-| **Horizon** | How far into the future the MPC predicts and scores |
-| **Receding horizon** | Replan every sample; apply only the first move |
-| **Plant** | The process being controlled (here: heater twin) |
-| **Simulation model** | The predictor inside the MPC optimiser |
-| **Input prediction** | Planned future power sequence |
-| **State prediction** | Predicted future temperature sequence |
-| **Constraint** | Hard rule the optimiser must not break (power window, max step) |
-| **Offset-free** | Disturbance correction so steady error does not stick around |
-| **PID** | Proportional–integral–derivative error feedback |
-| **IAE** | Integrated absolute tracking error (smaller is tighter tracking) |
-
----
+| Horizon | How far ahead the controller imagines (0.6 s here) |
+| Receding horizon | Replan every sample, apply only the first move |
+| Load torque | The drag the machine puts on the shaft |
+| Back EMF | Voltage the spinning motor generates against the supply |
+| Current protection | The drive's guard that keeps armature current under the limit |
+| Windup | Integral term growing while the output is limited |
 
 ## Where to go next
 
-- **Maths, heat balance, cost function, discrete PID, metrics:** [THEORY.md](THEORY.md)
-- **Knob list and solver notes:** [HOW-IT-WORKS.md](../HOW-IT-WORKS.md)
-- **Scenario tables and figures:** [report/report.md](../report/report.md)
+- Maths: [THEORY.md](THEORY.md)
+- Knobs and code map: [HOW-IT-WORKS.md](../HOW-IT-WORKS.md)
+- Results: [report/report.md](../report/report.md)

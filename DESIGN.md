@@ -1,6 +1,6 @@
 ---
-name: MPC Heater Lab
-description: Offset-free MPC vs hand-tuned PID vs optimized PID on a heat-balance heater — a Streamlit teaching lab for classroom demos.
+name: DC Motor Control Lab
+description: Offset-free MPC vs hand-tuned PID vs optimized PID on a permanent-magnet DC motor drive — a Streamlit teaching lab for classroom demos.
 colors:
   canvas: "#FAFAF9"
   surface: "#FFFFFF"
@@ -85,7 +85,7 @@ components:
     height: "36px"
 ---
 
-# Design System: MPC Heater Lab
+# Design System: DC Motor Control Lab
 
 ## 1. Overview
 

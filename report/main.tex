@@ -2,6 +2,7 @@
 
 \usepackage[a4paper,margin=2.2cm]{geometry}
 \usepackage{booktabs}
+\usepackage{multirow}
 \usepackage{graphicx}
 \usepackage{subcaption}
 \usepackage{amsmath,amssymb}
@@ -16,7 +17,6 @@
 
 \definecolor{mpcblue}{HTML}{1D4ED8}
 \newcommand{\mpcbest}[1]{\textcolor{mpcblue}{\textbf{#1}}}
-\newcommand{\unitC}{\si{\celsius}}
 
 \captionsetup{font=small,labelfont=bf}
 \captionsetup[sub]{font=scriptsize,labelfont=bf}
@@ -27,7 +27,7 @@
 \setlength{\belowcaptionskip}{2pt}
 
 \title{%
-  Offset-Free Model Predictive Control for an Induction Heater:\\
+  Offset-Free Model Predictive Control for an Industrial DC Motor Drive:\\
   Comparison with Hand-Tuned and Optimised PID}
 \author{%
   Vinayak Raizada, Vansh Gautam, Vrinda Gupta, Sushant Goyal\\
@@ -40,11 +40,13 @@
 
 \begin{abstract}
 Model predictive control (MPC) plans the next actuator move by rolling a plant model forward over a finite horizon and solving a constrained optimisation at every sample.
-In this report we build a simple offset-free MPC for an induction heater, run it on a nonlinear heat-balance simulation, and compare it with a hand-tuned PID and an optimised PID on the same tests.
-We score tracking with integrated absolute error (IAE) and also count power-limit violations.
-After a short retune (let the horizon see the future setpoint, \(N{=}40\), terminal weight \(Q_t{=}50\)), MPC has the best IAE on setpoint tracking (\(1044\) vs \(1466\) vs \(2477\)), under tight power limits (\(8727\) vs \(9033\) vs \(9153\)), and under model mismatch (\(1214\) vs \(1667\) vs \(2541\)), with no limit violations when constraints are active.
-Optimised PID is slightly better on two disturbance tests when it is tuned on those same tests.
-Overall, MPC is the better choice for this heater: it respects coil power and slew limits by design, recovers faster when the model is wrong, and matches or beats PID on the main tracking cases once it can see the coming setpoint.
+We build an offset-free MPC for the speed of a permanent-magnet DC (PMDC) motor, and compare it with a hand-tuned PID and an optimised PID on ten reproducible scenarios.
+All three controllers command the armature voltage through the same simulated drive, which saturates the voltage, limits its slew rate, and protects against over-current, and they face identical references, load torques and noise.
+The MPC predicts armature current and speed, respects voltage, voltage-rate and current constraints, and estimates both the load torque and an armature-voltage disturbance so that it stays offset-free under resistance mismatch.
+Optimised PID gains are found once on a speed-tracking scenario and then frozen.
+MPC has the lowest speed-tracking error and the fastest settling in most scenarios, including startup, tracking, load changes, encoder noise, reversal and plant mismatch, and the lowest time spent in current limit under current protection.
+Where the drive limits dominate, the three controllers are close.
+The MPC also uses the measured current, which the PID loops do not, and all parameters are illustrative.
 \end{abstract}
 
 \begin{figure}[H]
@@ -55,222 +57,173 @@ Overall, MPC is the better choice for this heater: it respects coil power and sl
 \end{figure}
 
 \section{Introduction}
-Induction heaters respond slowly and have hard limits on coil power and how fast that power may change.
-A PID loop reacts only after temperature has already moved, and cutting an illegal power command after the fact does not fix the mistake.
-MPC uses a model to predict what temperature will do under different power choices, re-solves every sample (receding horizon), and can enforce power and rate limits inside the optimiser~\cite{rawlings2017,camacho2013}.
-Figure~\ref{fig:mpc-loop} shows the idea: predict over a short horizon, apply only the first chosen move, then measure the plant and repeat.
+A PMDC motor with controlled armature voltage is a standard industrial drive: it turns conveyors, pumps, machine axes and material-handling equipment.
+The control task is to hold a shaft speed while the load changes, the supply wobbles and the encoder is noisy, without asking the drive for more voltage, voltage slew or current than it may deliver.
+A PID loop reacts only after the speed has already moved, and a limit applied after the fact does not undo the mistake that the controller made while it did not know about the limit.
+MPC uses a model to predict the response to different voltage choices, re-solves every sample (receding horizon), and can enforce voltage, rate and current limits inside the optimiser~\cite{rawlings2017,camacho2013}.
+Figure~\ref{fig:mpc-loop} shows the idea.
 
-We implement that idea with a fitted linear model plus a disturbance estimate for offset-free tracking~\cite{pannocchia2003}, a numerical optimiser, and a nonlinear heater simulation as the truth plant.
-The physical numbers in this report are illustrative, not field data.
+We implement it with a two-state linear prediction model, a disturbance estimate for offset-free tracking~\cite{pannocchia2003}, a constrained quadratic programme solved with SLSQP, and a simulated motor as the truth plant.
+All motor numbers are illustrative, not data from a commercial motor.
 
-The practical question is: after we retune the MPC settings (Section~\ref{sec:retune}), and after we let an optimised PID see each test during tuning, which controller should run this limited heater?
+\section{Background and models}
+We keep four models separate: the actual plant, the controller's prediction model, the drive, and the measurement model.
 
-\section{Background}
-\subsection{Heater plant}
-The plant is a simple heat balance on workpiece temperature \(T\):
+\subsection{Actual plant}
+The plant is the coupled electrical and mechanical system
 \begin{equation}
-  m c_p \frac{dT}{dt} = \eta P_{\mathrm{coil}} - U\bigl(T - T_{\mathrm{amb}}\bigr),
-  \label{eq:heat}
+  L_a \frac{di_a}{dt} = V_a - R_a i_a - K_e\omega,\qquad
+  J\frac{d\omega}{dt} = K_t i_a - B\omega - T_L,\qquad
+  \frac{d\theta}{dt}=\omega,
+  \label{eq:motor}
 \end{equation}
-integrated with explicit Euler. Illustrative parameters are
-\(m{=}800\,\mathrm{kg}\), \(c_p{=}480\,\mathrm{J\,kg^{-1}\,K^{-1}}\), \(\eta{=}0.82\),
-\(U{=}45\,\mathrm{W\,K^{-1}}\), \(T_{\mathrm{amb}}{=}25\,\unitC\).
+with \(R_a{=}1.0\,\si{\ohm}\), \(L_a{=}10\,\si{\milli\henry}\), \(K_t{=}K_e{=}0.05\), \(J{=}0.002\,\si{\kilogram\meter\squared}\), \(B{=}0.001\,\si{\newton\meter\second}\), nominal load \(T_L{=}0.05\,\si{\newton\meter}\), \(V_{\max}{=}24\,\si{\volt}\), \(I_{\max}{=}8\,\si{\ampere}\).
+In state-space form with \(x=[i_a,\omega,\theta]^\top\), \(A=\bigl[\begin{smallmatrix}-100&-5&0\\25&-0.5&0\\0&1&0\end{smallmatrix}\bigr]\), \(B=[100,0,0]^\top\), \(E=[0,-500,0]^\top\), and the poles lie at \(-98.7\) and \(-1.75\,\si{\per\second}\): an electrical time constant of \(10\,\si{\milli\second}\) and a mechanical one of about \(0.57\,\si{\second}\).
+The plant is integrated with fixed-step RK4 at \(1\,\si{\milli\second}\) while the controller runs every \(10\,\si{\milli\second}\) with its output held; a \(10\,\si{\milli\second}\) integration step would not resolve the electrical mode.
 
-\subsection{Identified prediction model}
-MPC predicts with a one-step SISO ARX model
-\begin{equation}
-  y_{k+1} = a y_k + b u_k + \hat{d}_k,
-  \label{eq:arx}
-\end{equation}
-with \(a{=}0.978\), \(b{=}0.042\), \(\Delta t{=}1\,\mathrm{s}\) from a 120\,s least-squares step fit on the simulator (\(\mathrm{RMS}\) residual \(0.35\,\unitC\)).
-To remove steady-state offset we use the integrating disturbance of Pannocchia and Rawlings~\cite{pannocchia2003}. After the first sample,
-\begin{equation}
-  \hat{d}_{k} \leftarrow \hat{d}_{k-1} + g\bigl(y_k^{\mathrm{meas}} - \hat{y}_{k\mid k-1}\bigr),
-\end{equation}
-with observer gain \(g{=}1\) in the retuned controller.
+\subsection{Prediction model and observer}
+MPC predicts with the \(2\)-state model \(x_{k+1}=A_dx_k+B_d(V_k+\hat d_V)+E_d\hat d_T\), \(x=[i_a,\omega]^\top\), obtained by exact zero-order-hold discretisation of the nominal motor.
+Each sample the innovations of the measured current and speed are mapped back to two disturbance estimates through \([B_d\;E_d]\), scaled by an observer gain \(g{=}0.1\).
+The torque estimate \(\hat d_T\) absorbs load and friction error; the voltage estimate \(\hat d_V\) absorbs electrical error such as a wrong resistance.
+A torque-only estimate left a speed offset of about \(44\,\mathrm{RPM}\) under \(+20\%\) resistance in development, which estimating both removed~\cite{pannocchia2003}.
 
-\subsection{MPC cost, constraints, and receding horizon}
-Over horizon \(N\) the controller chooses one free move \(u\) (control horizon \(N_u{=}1\) after the sweep in Section~\ref{sec:retune}) and minimises
+\subsection{Drive}
+Every command passes through one drive: enable and latched emergency stop, a slew limit (\(1200\,\si{\volt\per\second}\)), saturation at \(\pm V_{\max}\) times the DC-bus level, and current protection.
+Protection is a voltage window that keeps the exact one-sample electrical response inside \(\pm I_{\max}\), computed from the drive's nominal \(R_a,K_e\) and the measured current and speed, with a feedback term on measured excess current; it is not a clip of the simulated state.
+
+\subsection{Measurement}
+Speed comes from an encoder with seeded Gaussian noise; current is measured ideally.
+
+\section{Controllers}
+\subsection{MPC}
+Over \(N{=}60\) samples (\(0.6\,\si{\second}\)) the controller chooses \(n_u{=}6\) voltage moves with block lengths \(1,2,4,\dots\) samples and minimises
 \begin{equation}
-  J(u) = \sum_{i=1}^{N} \bigl(y_i - r_i\bigr)^2 + Q_t\bigl(y_N - r_N\bigr)^2,
+  J = q\sum_{k=1}^{N}(\omega_k-r_k)^2 + q_T(\omega_N-r_N)^2 + r_\Delta\sum_j\Delta V_j^2,
   \label{eq:cost}
 \end{equation}
-where \(r_i\) is the future setpoint seen over the horizon (reference preview).
-The chosen \(u\) must stay inside the coil power window and the one-step slew limit:
-\begin{equation}
-  \max(u_{\min},\, u_0 - \Delta u_{\max}) \le u \le \min(u_{\max},\, u_0 + \Delta u_{\max}).
-\end{equation}
-Only the first move is applied; then the horizon shifts forward.
-We solve the problem with a bounded quasi-Newton optimiser.
+in \(\mathrm{RPM}^2\) and \(\si{\volt\squared}\), with reference preview \(r_k\), \(q{=}1\), \(q_T{=}50\), \(r_\Delta{=}5000\).
+Constraints are the voltage box, the voltage change between moves, and the predicted armature current \(|i_{a,k}|\le I_{\max}\) over the whole horizon.
+All are linear in the decision variables, so SLSQP receives analytic gradients; solves take about \(1\)--\(5\,\si{\milli\second}\).
 
-\subsection{PID baseline}
-The discrete PID is
-\begin{equation}
-  u_k = u_{k-1} + K_p e_k + K_i \sum e + K_d \frac{e_k - e_{k-1}}{\Delta t},
-\end{equation}
-with back-calculation anti-windup when the actuator saturates~\cite{astrom2006}.
-Hand-tuned gains are fixed scenario defaults.
-Optimised PID uses the same bounded optimiser to minimise \(\mathrm{IAE} + 250\times(\text{violation steps})\) on the same plant, noise seed, and limits, with bounds \(K_p\in[0.05,12]\), \(K_i\in[0,0.35]\), \(K_d\in[0,8]\).
+\subsection{PID baselines}
+The positional PID takes RPM and returns volts, with a filtered derivative on the measurement and back-calculation anti-windup against the voltage the drive \emph{actually applied}, so slew, saturation and current limiting all unwind the integrator.
+Hand-tuned gains (\(K_p{=}0.01\), \(K_i{=}0.03\), \(K_d{=}0\)) are a deliberately conservative guess.
+Optimised gains minimise a dimensionless sum of IAE, overshoot, settling time, voltage effort, time in voltage saturation and time in current limit with L-BFGS-B~\cite{astrom2006}.
+They are found once on the speed-tracking scenario (\(K_p{=}0.0326\), \(K_i{=}0.131\), \(K_d{=}0\)) and frozen for all comparisons.
 
 \section{System design and implementation}
 \label{sec:design}
 Figure~\ref{fig:arch} shows the closed loop.
-MPC, hand-tuned PID, and optimised PID all drive the same simulated heater and are scored with the same metrics: IAE, ISE, overshoot, \(\pm 3\%\) settling time, constraint-violation steps, and energy \(\int P\,dt\).
+All controllers drive the same plant through the same drive and are scored with the same metrics.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.95\textwidth]{figures/architecture.png}
-  \caption{Simulation architecture: offset-free MPC and both PID variants act on one heater model.}
+  \caption{Simulation architecture: offset-free MPC and both PID variants act on one motor through one drive.}
   \label{fig:arch}
 \end{figure}
 
-\subsection{Retuned MPC parameters}
-\label{sec:retune}
-We ran a short grid on setpoint tracking, starting from legacy settings (\(N{=}25\), \(N_u{=}1\), no preview, \(Q_t{=}0\)) and trying longer horizons, multi-move \(N_u\), terminal weights, move penalties, and observer gains.
-Allowing several free moves with a move penalty made IAE worse on this heater.
-What helped most was \textbf{reference preview}, a longer horizon, and a terminal weight.
-The retuned values used for all results below are:
-
-\begin{table}[H]
-\centering
-\small
-\begin{tabular}{lll}
-\toprule
-Parameter & Legacy & Retuned \\
-\midrule
-Prediction horizon \(N\) & 25 & 40 (45 in power-limit case) \\
-Control horizon \(N_u\) & 1 & 1 \\
-Terminal weight \(Q_t\) & 0 & 50 \\
-Move weight \(R\) & 0 & 0 \\
-Observer gain \(g\) & 1 & 1 \\
-Reference preview & no & yes \\
-\bottomrule
-\end{tabular}
-\caption{MPC parameters before and after the retune. On setpoint tracking, IAE fell from \(1824\) to \(1044\).}
-\label{tab:retune}
-\end{table}
-
 \section{Experimental setup}
-Sample time \(\Delta t{=}1\,\mathrm{s}\).
-Default power window \(0\)--\(250\,\mathrm{kW}\) with slew \(25\,\mathrm{kW\,s^{-1}}\).
-We use five scenarios:
-
+Controller sample \(10\,\si{\milli\second}\), plant step \(1\,\si{\milli\second}\), nominal load \(0.05\,\si{\newton\meter}\).
+The ten scenarios, each reproducible (seeded noise, identical arrays for every controller), are:
 \begin{enumerate}
-  \item \textbf{Setpoint tracking:} \(80\to 120\,\unitC\) at \(30\,\mathrm{s}\) (duration \(180\,\mathrm{s}\)).
-  \item \textbf{Disturbance rejection:} hold \(115\,\unitC\); heat-loss \(U\) rises \(45\%\) at \(70\,\mathrm{s}\).
-  \item \textbf{Power limits:} cap \(150\,\mathrm{kW}\), slew \(8\,\mathrm{kW\,s^{-1}}\), target \(165\,\unitC\). Hand-tuned PID has rate limiting off in this scenario to show the cost of ignoring slew; MPC and optimised PID stay within limits.
-  \item \textbf{Model mismatch:} same setpoint test, but plant mass \({+}8\%\), efficiency \({-}6\%\), heat loss \({+}18\%\). MPC still uses the nominal ARX model.
-  \item \textbf{Ambient step:} \(T_{\mathrm{amb}}\) rises by \(8\,\mathrm{K}\) at \(70\,\mathrm{s}\).
+  \item \textbf{Motor startup:} \(0\to1000\,\mathrm{RPM}\) at nominal load.
+  \item \textbf{Speed tracking:} \(1000/2000/1500/2500\,\mathrm{RPM}\), \(5\,\si{\second}\) each.
+  \item \textbf{Sudden load:} at \(2000\,\mathrm{RPM}\), load \(0.05\to0.10\,\si{\newton\meter}\) at \(5\,\si{\second}\).
+  \item \textbf{Load removal:} \(0.10\to0.05\,\si{\newton\meter}\) at \(5\,\si{\second}\).
+  \item \textbf{Voltage saturation:} \(2900\,\mathrm{RPM}\) reference, DC bus sags to \(85\%\) at \(8\,\si{\second}\).
+  \item \textbf{Current protection:} \(2500\,\mathrm{RPM}\), load rises to \(0.14\,\si{\newton\meter}\), which needs more than \(8\,\si{\ampere}\) to hold speed.
+  \item \textbf{Model mismatch:} plant \(R_a{+}20\%\), \(J{+}30\%\), \(B{+}25\%\) (and the opposite corner), load step at \(8\,\si{\second}\); controllers keep the nominal model.
+  \item \textbf{Sensor noise:} \(15\,\mathrm{RPM}\) encoder noise during a \(1000\to1500\,\mathrm{RPM}\) step.
+  \item \textbf{Variable load:} \(0.5\,\si{\hertz}\) sinusoid plus bounded random torque at \(1500\,\mathrm{RPM}\).
+  \item \textbf{Reverse operation:} \(+1000\to-1000\to+1000\,\mathrm{RPM}\).
 \end{enumerate}
-We also run a robustness check: keep optimised-PID gains from the normal setpoint plant, then switch to the mismatched plant, and compare with MPC and with a PID retuned on the mismatch itself.
+Settling uses a \(2\%\) band on the last reference segment; IAE is in \(\mathrm{RPM\,s}\).
 
 \section{Results}
-Blue bold cells mark where MPC is strictly best among the three controllers.
+Blue bold cells mark where MPC is lowest (or tied lowest) among the three controllers on settling time, overshoot or IAE; black bold marks a PID variant that is lowest or tied.
+Peak current and time in current limit are shown for context, not ranked.
+All numbers are generated by \texttt{scripts/rebuild\_report\_metrics.py} from the code in this repository.
 
-\subsection{Summary table}
 \begin{table}[H]
 \centering
 \scriptsize
-\caption{Closed-loop metrics after the MPC retune. Blue bold = MPC strictly best.}
+\caption{Closed-loop metrics for the ten scenarios (plus the opposite mismatch corner). Optimised PID uses the frozen gains.}
 \label{tab:summary}
-\begin{tabular}{llrrr}
-\toprule
-Scenario & Metric & MPC & PID & Opt.\ PID \\
-\midrule
-Setpoint & IAE & \mpcbest{1044.3} & 2476.9 & 1466.4 \\
- & Settling [s] & \mpcbest{73} & 179 & 99 \\
- & Violations & 0 & 0 & 0 \\
-Disturbance & IAE & 596.0 & 1089.9 & 585.8 \\
- & Settling [s] & \mpcbest{46} & 103 & 60 \\
- & Violations & 0 & 0 & 0 \\
-Power limits & IAE & \mpcbest{8727.4} & 9153.3 & 9032.6 \\
- & Violations & 0 & 6 & 0 \\
- & Energy [kWh] & 8.297 & 7.986 & 8.073 \\
-Mismatch & IAE & \mpcbest{1214.2} & 2541.2 & 1666.6 \\
- & Settling [s] & \mpcbest{83} & 167 & 109 \\
-Ambient step & IAE & 641.2 & 1092.4 & 578.3 \\
- & Settling [s] & \mpcbest{46} & 102 & 60 \\
-\bottomrule
-\end{tabular}
+\input{results_table.tex}
 \end{table}
 
-Figure~\ref{fig:iae} summarises IAE; hatched bars are MPC wins.
-Figure~\ref{fig:traces} shows the four main responses: MPC reaches the \(120\,\unitC\) step first, stays inside the tight power cap, and recovers well under mismatch, while optimised PID stays close on the heat-loss disturbance.
+Figure~\ref{fig:iae} summarises IAE and Figure~\ref{fig:traces} shows four responses.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.95\textwidth]{figures/iae_bars.png}
-  \caption{IAE by scenario. Hatched bars mark where MPC is lowest.}
+  \caption{IAE by scenario.}
   \label{fig:iae}
 \end{figure}
 
 \begin{figure}[H]
   \centering
   \begin{subfigure}[t]{0.48\textwidth}
-    \includegraphics[width=\linewidth]{figures/setpoint_tracking.png}
-    \caption{Setpoint tracking}
+    \includegraphics[width=\linewidth]{figures/speed_tracking.png}
+    \caption{Speed tracking}
   \end{subfigure}\hfill
   \begin{subfigure}[t]{0.48\textwidth}
-    \includegraphics[width=\linewidth]{figures/disturbance_rejection.png}
-    \caption{Disturbance rejection}
+    \includegraphics[width=\linewidth]{figures/load_step.png}
+    \caption{Sudden load}
   \end{subfigure}
 
   \vspace{0.35em}
   \begin{subfigure}[t]{0.48\textwidth}
-    \includegraphics[width=\linewidth]{figures/power_constraints.png}
-    \caption{Power limits}
+    \includegraphics[width=\linewidth]{figures/current_protection.png}
+    \caption{Current protection}
   \end{subfigure}\hfill
   \begin{subfigure}[t]{0.48\textwidth}
     \includegraphics[width=\linewidth]{figures/model_mismatch.png}
     \caption{Model mismatch}
   \end{subfigure}
-  \caption{Temperature and coil power for MPC, PID, and optimised PID.}
+  \caption{Speed, armature current, voltage and torque for MPC, PID and optimised PID.}
   \label{fig:traces}
 \end{figure}
 
-\subsection{Power limits and violations}
-On the hard \(165\,\unitC\) request with a \(150\,\mathrm{kW}\) / \(8\,\mathrm{kW\,s^{-1}}\) ceiling, hand-tuned PID makes \textbf{six} slew violations.
-It reports slightly lower energy only because those illegal moves are allowed.
-MPC and optimised PID stay at zero violations; MPC also has the lowest IAE (\(8727\)).
-Figure~\ref{fig:viol} shows the gap.
-On the ambient step in Table~\ref{tab:summary}, optimised PID again wins IAE after a scenario retune, while MPC still settles faster because \(\hat{d}\) absorbs the load change.
+\subsection{Tracking and load changes}
+MPC settles startup in \(0.76\,\si{\second}\) against \(1.84\,\si{\second}\) for the hand-tuned PID and \(0.92\,\si{\second}\) for the optimised PID, and has the lowest IAE on speed tracking (\(1071\) against \(1854\) and \(1660\)).
+Much of the gap on the load step (IAE \(3\) against \(35\) and \(8\)) and the variable load is the disturbance estimator reacting within a sample or two; a PID with a larger integral gain could narrow it, at the cost of noise sensitivity.
+
+\subsection{Drive limits}
+In the voltage-saturation and current-protection scenarios the actuator, not the algorithm, sets the best achievable response, and the controllers end up close (current-protection IAE \(3626\) against \(3678\) and \(3635\)).
+MPC does keep the drive out of its current limit for less time (\(4.34\,\si{\second}\) against \(9.18\) and \(9.71\)), because it plans along the \(8\,\si{\ampere}\) bound instead of running into it.
+Under \(\pm20\%\) resistance error the drive's current limit can be exceeded transiently, up to \(9.1\,\si{\ampere}\) against an \(8\,\si{\ampere}\) limit in the low-resistance corner, before the feedback term backs off.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.72\textwidth]{figures/violations_power.png}
-  \caption{Constraint-violation counts on the power-limit scenario.}
-  \label{fig:viol}
+  \includegraphics[width=0.72\textwidth]{figures/current_limit_bars.png}
+  \caption{Time the drive's current protection was limiting, in the scenarios that reach the limit.}
+  \label{fig:ilim}
 \end{figure}
 
-\subsection{Robustness}
-If we freeze optimised-PID gains from the normal setpoint test and then switch to the mismatched plant, IAE rises to \(1702\).
-MPC on the same mismatched plant stays at \(1214\).
-Even a PID retuned on the mismatch itself only reaches \(1667\).
-Figure~\ref{fig:rob} shows the comparison and matches the mismatch bars in Figure~\ref{fig:iae}.
+\subsection{Noise and robustness}
+With \(15\,\mathrm{RPM}\) encoder noise the MPC keeps the lowest IAE (\(103\) against \(181\) and \(160\)), after the observer gain was lowered to \(0.1\); at gain \(1\) it amplified the noise into the voltage and lost to the PID.
+Under plant mismatch the MPC stays offset-free and has IAE \(1290\) against \(1700\) for the frozen optimised PID and \(1706\) for a PID retuned on the mismatched plant (Figure~\ref{fig:rob}).
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.88\textwidth]{figures/robustness_bars.png}
-  \caption{IAE under model mismatch. MPC stays lowest even against a PID retuned on the mismatched plant.}
+  \caption{IAE under plant mismatch: MPC, frozen optimised PID, and optimised PID retuned on the mismatched plant.}
   \label{fig:rob}
 \end{figure}
 
 \section{Discussion and limitations}
-For a coil that must stay inside a legal power window, the retuned MPC is the better controller.
-It has the lowest tracking IAE on setpoint, power-limit, and mismatch tests (Figures~\ref{fig:iae}--\ref{fig:traces}), the fastest settling on every row in Table~\ref{tab:summary}, zero violations when limits bind (Figure~\ref{fig:viol}), and a clear edge when the plant drifts from the model used to tune the PID (Figure~\ref{fig:rob}).
+Offset-free MPC is the better controller here, but the comparison favours it in three ways: it uses the measured current and a nominal model that matches the plant when no mismatch is applied, the PID loops are single-loop speed controllers, and its weights, horizon and observer gain are hand-set after looking at these scenarios.
+The optimised PID is tuned on one scenario, so its advantage elsewhere is whatever carries over, which is the point of freezing it; retuning on the mismatched plant did not help it.
 
-Two IAE rows still favour scenario-tuned optimised PID: disturbance rejection (\(586\) vs MPC \(596\)) and the ambient step (\(578\) vs \(641\)).
-Those gains were fitted on the same disturbance the controller then faces, so this is a strong baseline.
-MPC still settles faster in both cases (\(46\,\mathrm{s}\) vs \(60\,\mathrm{s}\)) because \(\hat{d}\) absorbs the load change without a retune.
-Hand-tuned PID is never best on IAE or settling here; its lower energy in the power-limit case comes with six illegal slew steps.
-
-Limitations remain: only one free move (\(N_u{=}1\)), a linear predictor against a nonlinear plant, power constraints only (no temperature constraint), and illustrative parameters.
-A fuller design could add a longer control horizon, multi-input coupling, and tighter model validation.
+The model is linear with constant parameters.
+It omits brush drop, magnetic saturation, temperature dependence of the resistance, Coulomb friction and shaft compliance; the load torque keeps its sign at standstill; the current sensor is ideal; and the converter efficiency (\(0.95\)) is illustrative, so the drive and motor efficiency figures in the repository (about \(0.1\)--\(0.2\), dominated by copper loss at these small shaft powers) are not data.
+No stability proof is claimed for the MPC, and the solve time of a few milliseconds is not a hard real-time guarantee.
 
 \section{Conclusion}
-For the heater studied here, offset-free MPC with reference preview is the controller to prefer.
-After the retune it leads on the main tracking and constraint metrics, keeps the coil inside limits by design, and stays ahead of both a frozen and a retuned PID when the plant is mismatched.
-Where a scenario-tuned PID still posts a slightly lower disturbance IAE, the gap is small, and that PID needs offline retuning that MPC does not.
+For this PMDC motor drive, offset-free MPC with reference preview is the controller to prefer when constraints and disturbances matter: it leads on startup, tracking, load changes, noise, reversal and mismatch, plans along the current limit instead of hitting it, and does not need retuning when the load or plant change.
+Where the drive's limits decide the outcome, the controllers are close, and a well-tuned PID remains a reasonable choice.
 
 \begin{thebibliography}{4}
 \footnotesize

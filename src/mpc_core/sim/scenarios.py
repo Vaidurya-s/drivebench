@@ -1,13 +1,21 @@
-"""Named scenarios for coursework comparisons."""
+"""Named, reproducible motor scenarios for controller comparison.
+
+Every scenario fixes the reference trajectory (RPM), load torque T_L(t),
+optional DC-bus profile, initial speed, measurement noise level, plant
+mismatch and drive-limit overrides. All three controllers see exactly the same
+arrays and the same seeded noise sequence.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
 
-from mpc_core.sim.config import DemoConfig, default_demo_config
+from mpc_core.sim.config import DemoConfig
+
+Profile = Callable[[np.ndarray], np.ndarray]
 
 
 @dataclass(frozen=True)
@@ -15,83 +23,203 @@ class ScenarioConfig:
     key: str
     title: str
     description: str
-    duration_s: int
-    t_initial_c: float
-    u_initial_kw: float
-    y_ref_fn: Callable[[np.ndarray], np.ndarray]
-    disturbance_at_s: float | None = None
-    disturbance_event: str | None = None
-    limits_override: tuple[float, float, float] | None = None
-    pid_gains: tuple[float, float, float] = (2.8, 0.04, 0.0)
+    duration_s: float
+    y_ref_fn: Profile  # speed reference [RPM]
+    load_fn: Profile  # load torque T_L [N m]
+    omega0_rpm: float = 0.0
+    bus_fn: Profile | None = None  # DC-bus voltage as a fraction of nominal
+    noise_std_rpm: float = 0.0
+    noise_seed: int = 42
+    plant_scale: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)  # R, L, J, B
+    v_max: float | None = None  # drive overrides (None = configuration default)
+    i_max: float | None = None
+    slew_v_per_s: float | None = None
+    load_change_at_s: float | None = None  # for speed-recovery time
+    pid_gains: tuple[float, float, float] = (0.01, 0.03, 0.0)
     mpc_horizon: int | None = None
-    pid_enforce_rate_limit: bool = True
 
 
-def _ref_step_80_120(time_s: np.ndarray) -> np.ndarray:
-    ref = np.full_like(time_s, 80.0, dtype=float)
-    ref[time_s >= 30.0] = 120.0
-    return ref
+# -- profile builders ---------------------------------------------------------
+def piecewise(levels: list[tuple[float, float]]) -> Profile:
+    """Zero-order-hold profile from (start_time_s, value) pairs."""
+    pts = sorted(levels)
+
+    def fn(t: np.ndarray) -> np.ndarray:
+        out = np.full_like(t, pts[0][1], dtype=float)
+        for t0, v in pts:
+            out[t >= t0] = v
+        return out
+
+    return fn
 
 
-def _ref_step_90_115(time_s: np.ndarray) -> np.ndarray:
-    ref = np.full_like(time_s, 90.0, dtype=float)
-    ref[time_s >= 20.0] = 115.0
-    return ref
+def constant(value: float) -> Profile:
+    return piecewise([(0.0, value)])
 
 
-def _ref_aggressive_high(time_s: np.ndarray) -> np.ndarray:
-    ref = np.full_like(time_s, 85.0, dtype=float)
-    ref[time_s >= 15.0] = 165.0
-    return ref
+def sinusoid(base: float, amplitude: float, freq_hz: float) -> Profile:
+    """T_L(t) = T_0 + A sin(2 pi f t)."""
+
+    def fn(t: np.ndarray) -> np.ndarray:
+        return base + amplitude * np.sin(2.0 * np.pi * freq_hz * t)
+
+    return fn
+
+
+def bounded_random(
+    base: float, amplitude: float, seed: int, hold_s: float = 0.5
+) -> Profile:
+    """Seeded, bounded, piecewise-linear random variation around ``base``."""
+
+    def fn(t: np.ndarray) -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        knots_t = np.arange(0.0, float(t[-1]) + 2 * hold_s, hold_s)
+        knots_v = rng.uniform(-amplitude, amplitude, size=len(knots_t))
+        return base + np.interp(t, knots_t, knots_v)
+
+    return fn
+
+
+def add(*profiles: Profile) -> Profile:
+    def fn(t: np.ndarray) -> np.ndarray:
+        return sum(p(t) for p in profiles)  # type: ignore[return-value]
+
+    return fn
+
+
+# Scenario 7 / scorecard mismatch cases: (R_a, L_a, J, B) multipliers.
+MISMATCH_CASES: dict[str, tuple[float, float, float, float]] = {
+    "high": (1.20, 1.0, 1.30, 1.25),
+    "low": (0.80, 1.0, 0.70, 0.75),
+}
 
 
 def build_scenarios(cfg: DemoConfig | None = None) -> dict[str, ScenarioConfig]:
-    _ = cfg or default_demo_config()
+    _ = cfg
     return {
-        "setpoint_tracking": ScenarioConfig(
-            key="setpoint_tracking",
-            title="Setpoint tracking",
+        "motor_startup": ScenarioConfig(
+            key="motor_startup",
+            title="Motor startup",
             description=(
-                "Temperature setpoint steps from 80 °C to 120 °C at 30 s. "
-                "Compares how quickly each controller reaches the new target."
+                "Start from rest to 1000 RPM at nominal load. Startup current is "
+                "limited by the drive, so the first second is a current-limited ramp."
             ),
-            duration_s=180,
-            t_initial_c=80.0,
-            u_initial_kw=95.0,
-            y_ref_fn=_ref_step_80_120,
+            duration_s=6.0,
+            y_ref_fn=constant(1000.0),
+            load_fn=constant(0.05),
         ),
-        "disturbance_rejection": ScenarioConfig(
-            key="disturbance_rejection",
-            title="Disturbance rejection",
+        "speed_tracking": ScenarioConfig(
+            key="speed_tracking",
+            title="Speed-reference tracking",
             description=(
-                "At 70 s the effective heat loss increases (U step) while the "
-                "setpoint stays at 115 °C. Offset-free MPC updates its disturbance "
-                "estimate; PID must react only through feedback."
+                "Reference staircase 1000 / 2000 / 1500 / 2500 RPM every 5 s. "
+                "Compares rise, overshoot and settling for each step."
             ),
-            duration_s=200,
-            t_initial_c=90.0,
-            u_initial_kw=110.0,
-            y_ref_fn=_ref_step_90_115,
-            disturbance_at_s=70.0,
-            disturbance_event="heat_loss_bump",
-            pid_gains=(3.2, 0.05, 0.5),
+            duration_s=20.0,
+            y_ref_fn=piecewise([(0, 1000), (5, 2000), (10, 1500), (15, 2500)]),
+            load_fn=constant(0.05),
         ),
-        "power_constraints": ScenarioConfig(
-            key="power_constraints",
-            title="Power limits and rate constraints",
+        "load_step": ScenarioConfig(
+            key="load_step",
+            title="Sudden mechanical load",
             description=(
-                "Tight power cap (150 kW) and 8 kW/s move limit while requesting "
-                "165 °C. MPC anticipates the ceiling; PID often saturates and "
-                "overshoots when limits bind."
+                "Running at 2000 RPM, the load torque doubles from 0.05 to 0.10 N m "
+                "at 5 s. Measures dip and recovery."
             ),
-            duration_s=200,
-            t_initial_c=85.0,
-            u_initial_kw=100.0,
-            y_ref_fn=_ref_aggressive_high,
-            limits_override=(0.0, 150.0, 8.0),
-            pid_gains=(4.5, 0.08, 0.0),
-            mpc_horizon=45,
-            pid_enforce_rate_limit=False,
+            duration_s=12.0,
+            y_ref_fn=constant(2000.0),
+            load_fn=piecewise([(0, 0.05), (5, 0.10)]),
+            omega0_rpm=2000.0,
+            load_change_at_s=5.0,
+        ),
+        "load_removal": ScenarioConfig(
+            key="load_removal",
+            title="Load removal",
+            description=(
+                "Running at 2000 RPM with 0.10 N m, the load drops to 0.05 N m at 5 s. "
+                "Measures speed overshoot and recovery."
+            ),
+            duration_s=12.0,
+            y_ref_fn=constant(2000.0),
+            load_fn=piecewise([(0, 0.10), (5, 0.05)]),
+            omega0_rpm=2000.0,
+            load_change_at_s=5.0,
+        ),
+        "voltage_saturation": ScenarioConfig(
+            key="voltage_saturation",
+            title="Voltage saturation",
+            description=(
+                "A near-maximum 2900 RPM reference, then the DC bus sags to 85 % at "
+                "8 s so the available voltage can no longer hold the speed."
+            ),
+            duration_s=14.0,
+            y_ref_fn=piecewise([(0, 1000), (2, 2900)]),
+            load_fn=constant(0.05),
+            bus_fn=piecewise([(0, 1.0), (8, 0.85)]),
+            
+        ),
+        "current_protection": ScenarioConfig(
+            key="current_protection",
+            title="Current protection",
+            description=(
+                "Start to 2500 RPM under 0.10 N m, then raise the load to 0.14 N m at "
+                "6 s. Holding speed would need more than the 8 A limit, so the drive's "
+                "current protection engages."
+            ),
+            duration_s=12.0,
+            y_ref_fn=constant(2500.0),
+            load_fn=piecewise([(0, 0.10), (6, 0.14)]),
+            load_change_at_s=6.0,
+        ),
+        "model_mismatch": ScenarioConfig(
+            key="model_mismatch",
+            title="Model mismatch",
+            description=(
+                "The plant has R_a +20 %, inertia +30 % and friction +25 % versus the "
+                "controllers' nominal model; a load step arrives at 8 s."
+            ),
+            duration_s=14.0,
+            y_ref_fn=piecewise([(0, 1000), (3, 2000)]),
+            load_fn=piecewise([(0, 0.05), (8, 0.09)]),
+            plant_scale=MISMATCH_CASES["high"],
+            load_change_at_s=8.0,
+        ),
+        "sensor_noise": ScenarioConfig(
+            key="sensor_noise",
+            title="Sensor noise",
+            description=(
+                "Encoder speed noise (15 RPM standard deviation) while stepping "
+                "from 1000 to 1500 RPM."
+            ),
+            duration_s=10.0,
+            y_ref_fn=piecewise([(0, 1000), (4, 1500)]),
+            load_fn=constant(0.05),
+            omega0_rpm=1000.0,
+            noise_std_rpm=15.0,
+        ),
+        "variable_load": ScenarioConfig(
+            key="variable_load",
+            title="Variable load",
+            description=(
+                "Constant 1500 RPM against a sinusoidal 0.5 Hz torque plus bounded "
+                "random variation."
+            ),
+            duration_s=12.0,
+            y_ref_fn=constant(1500.0),
+            load_fn=add(sinusoid(0.07, 0.03, 0.5), bounded_random(0.0, 0.015, seed=11)),
+            omega0_rpm=1500.0,
+        ),
+        "reverse_operation": ScenarioConfig(
+            key="reverse_operation",
+            title="Reverse operation",
+            description=(
+                "The bidirectional drive reverses from +1000 to -1000 RPM at 3 s and "
+                "back at 9 s. Compares braking and reversal transients."
+            ),
+            duration_s=14.0,
+            y_ref_fn=piecewise([(0, 1000), (3, -1000), (9, 1000)]),
+            load_fn=constant(0.05),
+            omega0_rpm=1000.0,
         ),
     }
 

@@ -1,4 +1,4 @@
-"""MPC Heater Lab — Streamlit entrypoint (st.Page + st.navigation).
+"""Industrial DC Motor Control Lab — Streamlit entrypoint (st.Page + st.navigation).
 
 Community Cloud runs ``streamlit run app.py`` from the repo root and installs only
 requirements.txt (Streamlit app-dependencies docs). Local package code lives under
@@ -12,8 +12,8 @@ import path_setup  # noqa: F401 — src/ on sys.path before page imports
 import streamlit as st
 
 st.set_page_config(
-    page_title="MPC Heater Lab",
-    page_icon="🔥",
+    page_title="DC Motor Control Lab",
+    page_icon="⚙️",
     layout="wide",
     initial_sidebar_state="expanded",
 )

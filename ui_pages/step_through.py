@@ -25,7 +25,7 @@ with top_l:
         format_func=lambda k: SCENARIOS[k].title,
     )
 with top_r:
-    horizon = st.slider("Horizon steps", 5, 35, DEFAULT_STEP_HORIZON)
+    horizon = st.slider("Horizon [10 ms samples]", 20, 100, DEFAULT_STEP_HORIZON)
 
 cfg = default_demo_config()
 
@@ -33,7 +33,7 @@ cfg = default_demo_config()
 @st.cache_data(show_spinner="Loading MPC steps…")
 def compute_log(key: str, h: int):
     sc = SCENARIOS[key]
-    return run_mpc_step_log(sc, cfg=cfg, horizon_steps=h, max_steps=70)
+    return run_mpc_step_log(sc, cfg=cfg, horizon_steps=h, max_steps=150)
 
 
 disk_log = load_step_log(scenario_key, horizon)
@@ -71,18 +71,18 @@ with nav3:
         min_value=1,
         max_value=len(log.snapshots),
         value=idx + 1,
-        help=f"t = {snap.time_s:.0f} s",
+        help=f"t = {snap.time_s:.2f} s",
     )
     if scrub - 1 != idx:
         st.session_state.mpc_step_idx = scrub - 1
         st.rerun()
 
 m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Applied power", f"{snap.u_applied:.2f} kW")
-m2.metric("Disturbance d̂", f"{snap.d_hat:.3f}")
-m3.metric("Measured", f"{snap.y_meas:.1f} °C")
-m4.metric("Setpoint", f"{snap.y_ref:.1f} °C")
+m1.metric("Planned voltage", f"{snap.u_applied:.2f} V")
+m2.metric("Load-torque estimate", f"{snap.d_hat:.3f} N·m")
+m3.metric("Measured speed", f"{snap.y_meas:.0f} RPM")
+m4.metric("Reference", f"{snap.y_ref:.0f} RPM")
 m5.metric("Solve time", f"{snap.solve_ms:.2f} ms")
 
 st.info(snap.caption)
-st.plotly_chart(mpc_horizon_figure(snap), use_container_width=True)
+st.plotly_chart(mpc_horizon_figure(snap, ts_s=cfg.dt_s), use_container_width=True)

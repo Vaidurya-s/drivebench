@@ -5,6 +5,15 @@ refreshed each run from the one-step innovation, scaled by an optional observer
 gain. The quadratic programme tracks a CV reference (with optional preview)
 under window and rate limits, with a free control horizon, move penalty, and
 terminal cost. Nothing here writes to a plant.
+
+Two prediction models share this entry point (``solve``):
+
+* ``IdentifiedLinearModel``: SISO first-order ARX (generic, kept for tests).
+* ``MotorStateSpaceModel``: the PMDC motor, state [i_a, omega], input armature
+  voltage, disturbance load torque. Adds a predicted-current constraint
+  |i_a| <= I_max, voltage box and voltage-rate limits. Speeds are RPM at the
+  interface, so tracking and terminal weights act on RPM^2 and the move weight
+  on V^2.
 """
 
 from __future__ import annotations
@@ -17,7 +26,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import minimize
 
-from mpc_core.identified import IdentifiedLinearModel
+from mpc_core.identified import IdentifiedLinearModel, MotorStateSpaceModel
 from mpc_core.thresholds import SetpointLimits
 
 
@@ -32,6 +41,8 @@ class MpcState:
     d_hat: float = 0.0
     last_y: float | None = None
     last_u: float | None = None
+    last_i: float | None = None
+    d_v: float = 0.0  # motor model only: armature-voltage disturbance estimate [V]
 
 
 @dataclass(frozen=True)
@@ -43,19 +54,30 @@ class MpcResult:
     active_constraints: list[str]
     state: MpcState
     planned_u: list[float] | None = None
+    predicted_i: list[float] | None = None
+    d_v_hat: float = 0.0
 
 
 def refresh_disturbance(
-    model: IdentifiedLinearModel,
+    model: IdentifiedLinearModel | MotorStateSpaceModel,
     state: MpcState,
     y_meas: float,
     u_current: float,
     *,
     observer_gain: float = 1.0,
+    i_meas: float | None = None,
 ) -> MpcState:
-    """Update integrating disturbance from the one-step innovation."""
+    """Update integrating disturbance from the one-step innovation.
+
+    For the motor model the disturbance is the load torque [N m] and
+    ``i_meas`` (armature current, measured) is required.
+    """
     if observer_gain <= 0.0:
         raise ValueError("observer_gain must be positive")
+    if isinstance(model, MotorStateSpaceModel):
+        from mpc_core.mpc_motor import refresh_torque
+
+        return refresh_torque(model, state, y_meas, u_current, i_meas, observer_gain)
     if state.last_y is None or state.last_u is None:
         d0 = (1.0 - model.a) * y_meas - model.b * u_current
         return MpcState(d_hat=d0, last_y=y_meas, last_u=u_current)
@@ -97,7 +119,7 @@ def _expand_control_sequence(
 
 
 def solve(
-    model: IdentifiedLinearModel,
+    model: IdentifiedLinearModel | MotorStateSpaceModel,
     limits: Sequence[SetpointLimits],
     current: Mapping[str, float],
     y_meas: float,
@@ -112,8 +134,37 @@ def solve(
     terminal_weight: float = 0.0,
     y_ref_traj: Sequence[float] | None = None,
     observer_gain: float = 1.0,
+    i_meas: float | None = None,
+    i_max: float | None = None,
 ) -> MpcResult:
-    """SISO offset-free QP; returns the first-move proposal (receding horizon)."""
+    """SISO offset-free QP; returns the first-move proposal (receding horizon).
+
+    With a ``MotorStateSpaceModel``, ``y_meas``/``y_ref`` are speeds in RPM, the
+    manipulated variable is armature voltage (``limits[0]`` is the voltage box
+    and per-sample slew), ``i_meas`` is the measured armature current and
+    ``i_max`` the predicted-current bound (see ``mpc_motor``).
+    """
+    if isinstance(model, MotorStateSpaceModel):
+        from mpc_core.mpc_motor import solve_motor
+
+        return solve_motor(
+            model,
+            limits,
+            current,
+            y_meas,
+            y_ref,
+            horizon_steps,
+            time_limit_s,
+            state,
+            tracking_weight,
+            control_horizon=control_horizon,
+            move_weight=move_weight,
+            terminal_weight=terminal_weight,
+            y_ref_traj=y_ref_traj,
+            observer_gain=observer_gain,
+            i_meas=i_meas,
+            i_max=i_max,
+        )
     if horizon_steps < 1:
         raise ValueError("horizon_steps must be at least 1")
     if len(limits) != 1:

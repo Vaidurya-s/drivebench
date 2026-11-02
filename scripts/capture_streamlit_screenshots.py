@@ -15,7 +15,7 @@ DOCS = ROOT / "docs"
 BASE = "http://127.0.0.1:8501"
 
 PAGE_SHOTS = [
-    ("", DOCS / "streamlit-overview.png", "MPC Heater Lab"),
+    ("", DOCS / "streamlit-overview.png", "Industrial DC Motor Control Lab"),
     ("playground", DOCS / "streamlit-playground.png", "Playground"),
     ("step_through", DOCS / "streamlit-step-through.png", "Step-through"),
     ("scorecard", DOCS / "streamlit-scorecard.png", "Scorecard"),
@@ -23,12 +23,14 @@ PAGE_SHOTS = [
 
 # Click each preset button; wait for the Active caption to show the case.
 PLAYGROUND_PRESET_SHOTS = [
-    ("Setpoint jump", DOCS / "streamlit-playground-setpoint.png", "80→120 °C"),
-    ("Cold-door", DOCS / "streamlit-playground-cold-door.png", "ambient_step"),
-    ("Heat-loss + noise", DOCS / "streamlit-playground-heat-loss-noise.png", "heat_loss_bump"),
-    ("Tight power", DOCS / "streamlit-playground-tight-power.png", "u_max=140"),
-    ("Soft limits", DOCS / "streamlit-playground-soft-limits.png", "u_max=220"),
-    ("Model mismatch", DOCS / "streamlit-playground-mismatch.png", "mismatch on"),
+    ("Speed step", DOCS / "streamlit-playground-speed-step.png", "1000→2000 RPM"),
+    ("Load step", DOCS / "streamlit-playground-load-step.png", "→ 0.100"),
+    ("Load removal", DOCS / "streamlit-playground-load-removal.png", "→ 0.050"),
+    ("Periodic load", DOCS / "streamlit-playground-periodic-load.png", "sin(0.5 Hz)"),
+    ("Noisy encoder", DOCS / "streamlit-playground-noisy-encoder.png", "encoder σ=15"),
+    ("Tight limits", DOCS / "streamlit-playground-tight-limits.png", "14 V / 4.0 A"),
+    ("Mismatch", DOCS / "streamlit-playground-mismatch.png", "mismatch on"),
+    ("Reverse", DOCS / "streamlit-playground-reverse.png", "1000→-1000 RPM"),
 ]
 
 

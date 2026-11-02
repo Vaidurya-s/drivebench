@@ -26,7 +26,7 @@ CasADi remains an external PyPI dependency (LGPL-3.0) and is not vendored.
 - **Project:** SciPy
 - **URL:** https://github.com/scipy/scipy
 - **Licence:** BSD-3-Clause
-- **Use:** `scipy.optimize.minimize` (L-BFGS-B) in `mpc.py`.
+- **Use:** `scipy.optimize.minimize` (SLSQP in `mpc.py` and `mpc_motor.py`, L-BFGS-B in `sim/pid_tune.py`) and `scipy.linalg.expm` for the discretised motor model.
 
 ## Streamlit
 
@@ -40,4 +40,4 @@ CasADi remains an external PyPI dependency (LGPL-3.0) and is not vendored.
 - **Project:** CasADi
 - **URL:** https://web.casadi.org/
 - **Licence:** GNU LGPL-3.0
-- **Use:** Heater twin step in `twin/ibh.py` (pip dependency `casadi==3.8.2`).
+- **Use:** PMDC motor twin RK4 step in `twin/pmdc.py` (pip dependency `casadi==3.8.2`).
