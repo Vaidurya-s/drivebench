@@ -9,3 +9,9 @@ video/node_modules/
 video/renders/
 video/.hyperframes/
 .vercel
+report/main.aux
+report/main.fdb_latexmk
+report/main.fls
+report/main.log
+report/main.out
+report/main.pdf
