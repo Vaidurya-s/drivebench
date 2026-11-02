@@ -50,7 +50,7 @@ A sequence of future voltage values the optimiser is considering: fine steps rig
 
 ### 4. State prediction (planned speed and current)
 
-What the model expects if that voltage plan were followed. The Step-through page shows these predictions for one MPC tick: the speed curve and the armature current, which is kept under the limit.
+What the model expects if that voltage plan were followed. The MPC Prediction Explorer page shows these predictions for one MPC tick: the speed curve and the armature current, which is kept under the limit.
 
 ---
 
@@ -71,6 +71,12 @@ PID looks at the speed error now (P), the error summed up over time (I) and how 
 ### Optimised PID
 
 The same PID, but the three gains were found by a computer search that scores speed error, overshoot, settling time, voltage effort and time spent in the voltage or current limit. The search ran **once**, on a speed-tracking test, and the gains are then frozen for every comparison. A real engineer does not retune a drive for every load change either.
+
+---
+
+### LQR with integral action
+
+A fourth controller. It measures the armature current and the speed, multiplies each by a gain chosen by solving an optimisation (the Riccati equation), and adds the running total of the speed error (the "integral") so the speed ends up exactly on target even under a steady load. You decide how much it should care about current, speed error, accumulated error and voltage; the DriveBench LQR Design Studio shows what each choice does. Unlike MPC it does not plan ahead and does not see the limits; the drive enforces them.
 
 ---
 

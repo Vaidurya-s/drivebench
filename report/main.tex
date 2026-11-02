@@ -27,8 +27,8 @@
 \setlength{\belowcaptionskip}{2pt}
 
 \title{%
-  Offset-Free Model Predictive Control for an Industrial DC Motor Drive:\\
-  Comparison with Hand-Tuned and Optimised PID}
+  DriveBench: Offset-Free MPC and Integral-Augmented LQR for an Industrial DC Motor Drive,\\
+  Compared with Hand-Tuned and Optimised PID}
 \author{%
   Vinayak Raizada, Vansh Gautam, Vrinda Gupta, Sushant Goyal\\
   Department of Electrical Engineering, IIT Roorkee}
@@ -40,30 +40,23 @@
 
 \begin{abstract}
 Model predictive control (MPC) plans the next actuator move by rolling a plant model forward over a finite horizon and solving a constrained optimisation at every sample.
-We build an offset-free MPC for the speed of a permanent-magnet DC (PMDC) motor, and compare it with a hand-tuned PID and an optimised PID on ten reproducible scenarios.
-All three controllers command the armature voltage through the same simulated drive, which saturates the voltage, limits its slew rate, and protects against over-current, and they face identical references, load torques and noise.
+We build an offset-free MPC and an integral-augmented linear quadratic regulator (LQR) for the speed of a permanent-magnet DC (PMDC) motor, and compare them with a hand-tuned PID and an optimised PID on ten reproducible scenarios.
+All four controllers command the armature voltage through the same simulated drive, which saturates the voltage, limits its slew rate, and protects against over-current, and they face identical references, load torques and noise.
 The MPC predicts armature current and speed, respects voltage, voltage-rate and current constraints, and estimates both the load torque and an armature-voltage disturbance so that it stays offset-free under resistance mismatch.
 Optimised PID gains are found once on a speed-tracking scenario and then frozen.
-MPC has the lowest speed-tracking error and the fastest settling in most scenarios, including startup, tracking, load changes, encoder noise, reversal and plant mismatch, and the lowest time spent in current limit under current protection.
-Where the drive limits dominate, the three controllers are close.
-The MPC also uses the measured current, which the PID loops do not, and all parameters are illustrative.
+MPC has the lowest speed-tracking error and the fastest settling in most scenarios, including tracking, encoder noise, reversal and plant mismatch, and the lowest time spent in current limit under current protection; the LQR is best on startup settling and on load disturbances.
+Where the drive limits dominate, the four controllers are close.
+The MPC and LQR also use the measured current, which the PID loops do not, their weights were set by hand while looking at these scenarios, and all parameters are illustrative.
 \end{abstract}
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.92\textwidth]{figures/mpc-infographic.png}
-  \caption{MPC loop: predict states and inputs over a horizon, apply the first move to the plant, and close the loop with measured feedback and disturbance \(\theta(t)\).}
-  \label{fig:mpc-loop}
-\end{figure}
 
 \section{Introduction}
 A PMDC motor with controlled armature voltage is a standard industrial drive: it turns conveyors, pumps, machine axes and material-handling equipment.
 The control task is to hold a shaft speed while the load changes, the supply wobbles and the encoder is noisy, without asking the drive for more voltage, voltage slew or current than it may deliver.
 A PID loop reacts only after the speed has already moved, and a limit applied after the fact does not undo the mistake that the controller made while it did not know about the limit.
 MPC uses a model to predict the response to different voltage choices, re-solves every sample (receding horizon), and can enforce voltage, rate and current limits inside the optimiser~\cite{rawlings2017,camacho2013}.
-Figure~\ref{fig:mpc-loop} shows the idea.
 
-We implement it with a two-state linear prediction model, a disturbance estimate for offset-free tracking~\cite{pannocchia2003}, a constrained quadratic programme solved with SLSQP, and a simulated motor as the truth plant.
+We compare it with a linear quadratic regulator with integral action (LQI)~\cite{anderson1990} and two PID loops.
+We implement MPC with a two-state linear prediction model, a disturbance estimate for offset-free tracking~\cite{pannocchia2003}, a constrained quadratic programme solved with SLSQP, and a simulated motor as the truth plant.
 All motor numbers are illustrative, not data from a commercial motor.
 
 \section{Background and models}
@@ -105,6 +98,13 @@ in \(\mathrm{RPM}^2\) and \(\si{\volt\squared}\), with reference preview \(r_k\)
 Constraints are the voltage box, the voltage change between moves, and the predicted armature current \(|i_{a,k}|\le I_{\max}\) over the whole horizon.
 All are linear in the decision variables, so SLSQP receives analytic gradients; solves take about \(1\)--\(5\,\si{\milli\second}\).
 
+\subsection{LQR with integral action}
+With \(\dot\xi=\omega-r\) the augmented state is \([i_a,\omega,\xi]^\top\).
+The plant part is discretised exactly (zero-order hold) at the \(10\,\si{\milli\second}\) controller period, the integrator uses the same forward-Euler update the controller runs, and the gain \(K=(R+B_d^\top PB_d)^{-1}B_d^\top PA_d\) comes from the discrete algebraic Riccati equation.
+The cost uses normalised weights \(q_i{=}0.1\), \(q_\omega{=}300\), \(q_\xi{=}10^4\), \(r_V{=}1\) on states scaled by \(I_{\max}\), \(\omega_{\max}\), \(0.5\,\si{\second}\,\omega_{\max}\) and \(V_{\max}\).
+The law is \(u=u_{ff}(r)-K_x(x-x_{eq}(r))-K_\xi\xi\), with back-calculation anti-windup against the applied voltage; a constant load is rejected by the integrator, with no disturbance estimator.
+The weights were chosen from a small sweep on startup and are hand-set, like the MPC settings.
+
 \subsection{PID baselines}
 The positional PID takes RPM and returns volts, with a filtered derivative on the measurement and back-calculation anti-windup against the voltage the drive \emph{actually applied}, so slew, saturation and current limiting all unwind the integrator.
 Hand-tuned gains (\(K_p{=}0.01\), \(K_i{=}0.03\), \(K_d{=}0\)) are a deliberately conservative guess.
@@ -119,7 +119,7 @@ All controllers drive the same plant through the same drive and are scored with 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.95\textwidth]{figures/architecture.png}
-  \caption{Simulation architecture: offset-free MPC and both PID variants act on one motor through one drive.}
+  \caption{Simulation architecture: PID, optimised PID, LQR and offset-free MPC act on one motor through one drive.}
   \label{fig:arch}
 \end{figure}
 
@@ -141,7 +141,7 @@ The ten scenarios, each reproducible (seeded noise, identical arrays for every c
 Settling uses a \(2\%\) band on the last reference segment; IAE is in \(\mathrm{RPM\,s}\).
 
 \section{Results}
-Blue bold cells mark where MPC is lowest (or tied lowest) among the three controllers on settling time, overshoot or IAE; black bold marks a PID variant that is lowest or tied.
+Blue bold cells mark where MPC is lowest (or tied lowest) among the four controllers on settling time, overshoot or IAE; black bold marks another controller that is lowest or tied.
 Peak current and time in current limit are shown for context, not ranked.
 All numbers are generated by \texttt{scripts/rebuild\_report\_metrics.py} from the code in this repository.
 
@@ -182,17 +182,19 @@ Figure~\ref{fig:iae} summarises IAE and Figure~\ref{fig:traces} shows four respo
     \includegraphics[width=\linewidth]{figures/model_mismatch.png}
     \caption{Model mismatch}
   \end{subfigure}
-  \caption{Speed, armature current, voltage and torque for MPC, PID and optimised PID.}
+  \caption{Speed, armature current, voltage and torque for all four controllers.}
   \label{fig:traces}
 \end{figure}
 
 \subsection{Tracking and load changes}
-MPC settles startup in \(0.76\,\si{\second}\) against \(1.84\,\si{\second}\) for the hand-tuned PID and \(0.92\,\si{\second}\) for the optimised PID, and has the lowest IAE on speed tracking (\(1071\) against \(1854\) and \(1660\)).
-Much of the gap on the load step (IAE \(3\) against \(35\) and \(8\)) and the variable load is the disturbance estimator reacting within a sample or two; a PID with a larger integral gain could narrow it, at the cost of noise sensitivity.
+LQR settles startup in \(0.71\,\si{\second}\) and MPC in \(0.76\,\si{\second}\), against \(1.84\,\si{\second}\) for the hand-tuned PID and \(0.92\,\si{\second}\) for the optimised PID.
+MPC has the lowest IAE on speed tracking (\(1071\) against \(1854\), \(1660\) and \(1608\) for PID, optimised PID and LQR), helped by reference preview.
+On the load step the LQR is lowest (IAE \(1.2\) against \(3.2\) for MPC, \(8\) and \(35\) for the PIDs), and on the variable load too (\(18\) against \(45\), \(96\) and \(275\)): current feedback plus an integrator reacts as fast as the MPC's disturbance estimator.
+A PID with a larger integral gain could narrow the gap to both, at the cost of noise sensitivity.
 
 \subsection{Drive limits}
-In the voltage-saturation and current-protection scenarios the actuator, not the algorithm, sets the best achievable response, and the controllers end up close (current-protection IAE \(3626\) against \(3678\) and \(3635\)).
-MPC does keep the drive out of its current limit for less time (\(4.34\,\si{\second}\) against \(9.18\) and \(9.71\)), because it plans along the \(8\,\si{\ampere}\) bound instead of running into it.
+In the voltage-saturation and current-protection scenarios the actuator, not the algorithm, sets the best achievable response, and the controllers end up close (current-protection IAE \(3626\) for MPC against \(3678\), \(3635\) and \(3616\)).
+MPC keeps the drive out of its current limit for less time (\(4.34\,\si{\second}\) against \(9.18\), \(9.71\) and \(10.05\) for the LQR), because it plans along the \(8\,\si{\ampere}\) bound instead of running into it; the LQR has no knowledge of the limit.
 Under \(\pm20\%\) resistance error the drive's current limit can be exceeded transiently, up to \(9.1\,\si{\ampere}\) against an \(8\,\si{\ampere}\) limit in the low-resistance corner, before the feedback term backs off.
 
 \begin{figure}[H]
@@ -203,8 +205,9 @@ Under \(\pm20\%\) resistance error the drive's current limit can be exceeded tra
 \end{figure}
 
 \subsection{Noise and robustness}
-With \(15\,\mathrm{RPM}\) encoder noise the MPC keeps the lowest IAE (\(103\) against \(181\) and \(160\)), after the observer gain was lowered to \(0.1\); at gain \(1\) it amplified the noise into the voltage and lost to the PID.
-Under plant mismatch the MPC stays offset-free and has IAE \(1290\) against \(1700\) for the frozen optimised PID and \(1706\) for a PID retuned on the mismatched plant (Figure~\ref{fig:rob}).
+With \(15\,\mathrm{RPM}\) encoder noise the MPC keeps the lowest IAE (\(103\) against \(181\), \(160\) and \(173\) for the LQR), after the observer gain was lowered to \(0.1\); at gain \(1\) it amplified the noise into the voltage and lost to the PID.
+Under plant mismatch the MPC stays offset-free and has IAE \(1290\) against \(1700\) for the frozen optimised PID, \(1706\) for a PID retuned on the mismatched plant and \(1676\) for the LQR (Figure~\ref{fig:rob}).
+Execution time differs by orders of magnitude: about \(0.01\,\si{\milli\second}\) per sample for the PID loops and LQR, \(3\)--\(6\,\si{\milli\second}\) for MPC.
 
 \begin{figure}[H]
   \centering
@@ -214,18 +217,19 @@ Under plant mismatch the MPC stays offset-free and has IAE \(1290\) against \(17
 \end{figure}
 
 \section{Discussion and limitations}
-Offset-free MPC is the better controller here, but the comparison favours it in three ways: it uses the measured current and a nominal model that matches the plant when no mismatch is applied, the PID loops are single-loop speed controllers, and its weights, horizon and observer gain are hand-set after looking at these scenarios.
+Offset-free MPC is the best overall here, but the comparison favours it and the LQR in three ways: both use the measured current and a nominal model that matches the plant when no mismatch is applied, the PID loops are single-loop speed controllers, and the MPC weights, horizon and observer gain and the LQR weights are hand-set after looking at these scenarios.
 The optimised PID is tuned on one scenario, so its advantage elsewhere is whatever carries over, which is the point of freezing it; retuning on the mismatched plant did not help it.
 
 The model is linear with constant parameters.
 It omits brush drop, magnetic saturation, temperature dependence of the resistance, Coulomb friction and shaft compliance; the load torque keeps its sign at standstill; the current sensor is ideal; and the converter efficiency (\(0.95\)) is illustrative, so the drive and motor efficiency figures in the repository (about \(0.1\)--\(0.2\), dominated by copper loss at these small shaft powers) are not data.
-No stability proof is claimed for the MPC, and the solve time of a few milliseconds is not a hard real-time guarantee.
+No stability proof is claimed for the MPC or for the LQR under saturation, and the solve time of a few milliseconds is not a hard real-time guarantee.
 
 \section{Conclusion}
-For this PMDC motor drive, offset-free MPC with reference preview is the controller to prefer when constraints and disturbances matter: it leads on startup, tracking, load changes, noise, reversal and mismatch, plans along the current limit instead of hitting it, and does not need retuning when the load or plant change.
+For this PMDC motor drive, offset-free MPC with reference preview is the controller to prefer when constraints, previewed references and disturbances matter: it leads on tracking, noise, reversal and mismatch and plans along the current limit instead of hitting it, at the price of a numerical optimisation every sample.
+An integral-augmented LQR is a cheap and strong alternative for load disturbances and startup, but it does not respect the current limit by itself.
 Where the drive's limits decide the outcome, the controllers are close, and a well-tuned PID remains a reasonable choice.
 
-\begin{thebibliography}{4}
+\begin{thebibliography}{5}
 \footnotesize
 \bibitem{pannocchia2003}
 G.~Pannocchia and J.~B.~Rawlings,
@@ -236,6 +240,11 @@ G.~Pannocchia and J.~B.~Rawlings,
 J.~B.~Rawlings, D.~Q.~Mayne, and M.~Diehl,
 \emph{Model Predictive Control: Theory, Computation, and Design}, 2nd~ed.
 Madison, WI: Nob Hill Publishing, 2017.
+
+\bibitem{anderson1990}
+B.~D.~O.~Anderson and J.~B.~Moore,
+\emph{Optimal Control: Linear Quadratic Methods}.
+Englewood Cliffs, NJ: Prentice Hall, 1990.
 
 \bibitem{camacho2013}
 E.~F.~Camacho and C.~Bordons,

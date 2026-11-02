@@ -11,7 +11,7 @@ British spelling. Symbols match what the code implements. Motor numbers are **il
 
 A permanent-magnet DC (PMDC) motor with a controlled armature voltage is a standard industrial drive. It turns conveyor belts, pumps, automated manufacturing equipment, material-handling systems, mechanical actuators and general machinery. The control job is to **hold a commanded shaft speed** while the mechanical load changes, the supply wobbles, the sensor is noisy and the drive protects itself (voltage ceiling, slew limit, current limit).
 
-This lab compares three ways of choosing the armature voltage each 10 ms: offset-free **MPC**, a hand-tuned **PID**, and an **optimised PID** (same PID law, gains found offline once and then frozen).
+This lab compares four ways of choosing the armature voltage each 10 ms: offset-free **MPC**, an integral-augmented **LQR** (LQI), a hand-tuned **PID**, and an **optimised PID** (same PID law, gains found offline once and then frozen).
 
 ## 2. Physical structure of the PMDC motor
 
@@ -108,6 +108,14 @@ Positional PID in RPM-in, volts-out form (`sim/pid.py`):
 - derivative on the **measurement**, low-pass filtered (\(\tau_f=20\) ms), so reference steps cause no kick;
 - anti-windup by back-calculation against the voltage the **drive actually applied**, so slew, voltage and current limiting all unwind the integrator (\(T_t=50\) ms), plus a conditional clamp when the output saturates;
 - output clipped to \(\pm V_{max}\).
+
+### 8b. LQR with integral action (LQI)
+
+State feedback on \([i_a,\omega,\xi]\) with \(\dot\xi=\omega-r\), gain from the discrete algebraic Riccati
+equation at the 10 ms controller period (`sim/lqr.py`). Normalised weights, the control law,
+anti-windup and the design diagnostics are in [LQR.md](LQR.md). The integral state gives zero
+steady-state speed error under constant load; there is no disturbance estimator, and the controller
+uses the measured armature current like the MPC.
 
 ## 9. MPC
 

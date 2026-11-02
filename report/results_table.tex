@@ -2,48 +2,59 @@
 \toprule
 Scenario & Controller & Settling [s] & Overshoot [\%] & IAE [RPM s] & Peak I [A] & Current-limited [s] \\
 \midrule
-\multirow{3}{*}{Motor startup} & MPC & \mpcbest{0.76} & \mpcbest{0.0} & \mpcbest{351} & 7.98 & 0.60 \\
- & PID & 1.84 & 2.8 & 414 & 7.97 & 0.20 \\
+\multirow{4}{*}{Motor startup} & PID & 1.84 & 2.8 & 414 & 7.97 & 0.20 \\
  & Opt. PID & 0.92 & 0.2 & 364 & 7.99 & 0.45 \\
+ & LQR & \textbf{0.71} & \textbf{0.0} & \textbf{346} & 7.99 & 0.67 \\
+ & MPC & 0.76 & \mpcbest{0.0} & 351 & 7.98 & 0.60 \\
 \midrule
-\multirow{3}{*}{Speed-reference tracking} & MPC & \mpcbest{0.87} & \mpcbest{0.0} & \mpcbest{1071} & 7.99 & 3.05 \\
- & PID & 1.58 & 1.0 & 1854 & 7.99 & 1.81 \\
+\multirow{4}{*}{Speed-reference tracking} & PID & 1.58 & 1.0 & 1854 & 7.99 & 1.81 \\
  & Opt. PID & 1.49 & 0.1 & 1660 & 7.99 & 2.65 \\
+ & LQR & 1.46 & \textbf{0.0} & 1608 & 7.99 & 3.42 \\
+ & MPC & \mpcbest{0.87} & \mpcbest{0.0} & \mpcbest{1071} & 7.99 & 3.05 \\
 \midrule
-\multirow{3}{*}{Sudden mechanical load} & MPC & \mpcbest{0.00} & \mpcbest{0.0} & \mpcbest{3} & 6.42 & 0.00 \\
- & PID & \textbf{0.00} & \textbf{0.0} & 35 & 6.33 & 0.00 \\
+\multirow{4}{*}{Sudden mechanical load} & PID & \textbf{0.00} & \textbf{0.0} & 35 & 6.33 & 0.00 \\
  & Opt. PID & \textbf{0.00} & \textbf{0.0} & 8 & 6.35 & 0.00 \\
+ & LQR & \textbf{0.00} & \textbf{0.0} & \textbf{1} & 6.35 & 0.00 \\
+ & MPC & \mpcbest{0.00} & \mpcbest{0.0} & 3 & 6.42 & 0.00 \\
 \midrule
-\multirow{3}{*}{Load removal} & MPC & \mpcbest{0.00} & \mpcbest{0.0} & \mpcbest{3} & 6.19 & 0.00 \\
- & PID & \textbf{0.00} & \textbf{0.0} & 35 & 6.19 & 0.00 \\
+\multirow{4}{*}{Load removal} & PID & \textbf{0.00} & \textbf{0.0} & 35 & 6.19 & 0.00 \\
  & Opt. PID & \textbf{0.00} & \textbf{0.0} & 8 & 6.19 & 0.00 \\
+ & LQR & \textbf{0.00} & \textbf{0.0} & \textbf{1} & 6.19 & 0.00 \\
+ & MPC & \mpcbest{0.00} & \mpcbest{0.0} & 3 & 6.19 & 0.00 \\
 \midrule
-\multirow{3}{*}{Voltage saturation} & MPC & — & \mpcbest{0.0} & \mpcbest{3307} & 8.00 & 3.84 \\
- & PID & — & 0.3 & 4122 & 7.99 & 3.00 \\
+\multirow{4}{*}{Voltage saturation} & PID & — & 0.3 & 4122 & 7.99 & 3.00 \\
  & Opt. PID & — & \textbf{0.0} & 4092 & 8.00 & 3.53 \\
+ & LQR & — & \textbf{0.0} & 4072 & 8.00 & 3.98 \\
+ & MPC & — & \mpcbest{0.0} & \mpcbest{3307} & 8.00 & 3.84 \\
 \midrule
-\multirow{3}{*}{Current protection} & MPC & \mpcbest{3.89} & \mpcbest{0.0} & \mpcbest{3626} & 8.00 & 4.34 \\
- & PID & 3.92 & 0.2 & 3678 & 8.00 & 9.18 \\
+\multirow{4}{*}{Current protection} & PID & 3.92 & 0.2 & 3678 & 8.00 & 9.18 \\
  & Opt. PID & \textbf{3.89} & \textbf{0.0} & 3635 & 8.00 & 9.71 \\
+ & LQR & \textbf{3.89} & \textbf{0.0} & \textbf{3616} & 8.00 & 10.05 \\
+ & MPC & \mpcbest{3.89} & \mpcbest{0.0} & 3626 & 8.00 & 4.34 \\
 \midrule
-\multirow{3}{*}{Model mismatch} & MPC & \mpcbest{2.08} & \mpcbest{0.3} & \mpcbest{1290} & 7.14 & 4.47 \\
- & PID & 2.69 & 1.4 & 1794 & 7.23 & 4.10 \\
+\multirow{4}{*}{Model mismatch} & PID & 2.69 & 1.4 & 1794 & 7.23 & 4.10 \\
  & Opt. PID & 2.67 & 0.4 & 1700 & 7.36 & 4.25 \\
+ & LQR & 2.67 & \textbf{0.2} & 1676 & 7.36 & 4.36 \\
+ & MPC & \mpcbest{2.08} & 0.3 & \mpcbest{1290} & 7.14 & 4.47 \\
 \midrule
-\multirow{3}{*}{Sensor noise} & MPC & \mpcbest{0.25} & 2.3 & \mpcbest{103} & 7.98 & 0.16 \\
- & PID & 0.68 & 5.0 & 181 & 7.98 & 0.08 \\
+\multirow{4}{*}{Sensor noise} & PID & 0.68 & 5.0 & 181 & 7.98 & 0.08 \\
  & Opt. PID & 0.63 & \textbf{1.8} & 160 & 7.99 & 0.22 \\
+ & LQR & 0.46 & 3.9 & 173 & 7.99 & 0.54 \\
+ & MPC & \mpcbest{0.25} & 2.3 & \mpcbest{103} & 7.98 & 0.16 \\
 \midrule
-\multirow{3}{*}{Variable load} & MPC & \mpcbest{0.00} & \mpcbest{0.0} & \mpcbest{45} & 5.48 & 0.00 \\
- & PID & 11.74 & \textbf{0.0} & 275 & 5.32 & 0.00 \\
+\multirow{4}{*}{Variable load} & PID & 11.74 & \textbf{0.0} & 275 & 5.32 & 0.00 \\
  & Opt. PID & \textbf{0.00} & \textbf{0.0} & 96 & 5.50 & 0.00 \\
+ & LQR & \textbf{0.00} & \textbf{0.0} & \textbf{18} & 5.44 & 0.00 \\
+ & MPC & \mpcbest{0.00} & \mpcbest{0.0} & 45 & 5.48 & 0.00 \\
 \midrule
-\multirow{3}{*}{Reverse operation} & MPC & \mpcbest{0.69} & \mpcbest{0.0} & \mpcbest{1132} & 7.98 & 1.62 \\
- & PID & 2.37 & 1.4 & 2199 & 7.97 & 1.10 \\
+\multirow{4}{*}{Reverse operation} & PID & 2.37 & 1.4 & 2199 & 7.97 & 1.10 \\
  & Opt. PID & 1.44 & 0.1 & 2079 & 7.97 & 1.65 \\
+ & LQR & 1.24 & \textbf{0.0} & 2037 & 7.98 & 2.10 \\
+ & MPC & \mpcbest{0.69} & \mpcbest{0.0} & \mpcbest{1132} & 7.98 & 1.62 \\
 \midrule
-\multirow{3}{*}{Model mismatch (low R, J, B)} & MPC & \mpcbest{0.33} & \mpcbest{0.0} & \mpcbest{468} & 8.98 & 0.39 \\
- & PID & 1.17 & \textbf{0.0} & 756 & 9.10 & 0.25 \\
+\multirow{4}{*}{Model mismatch (low R, J, B)} & PID & 1.17 & \textbf{0.0} & 756 & 9.10 & 0.25 \\
  & Opt. PID & 0.87 & \textbf{0.0} & 615 & 9.10 & 0.50 \\
+ & LQR & 0.57 & \textbf{0.0} & 518 & 9.10 & 0.95 \\
+ & MPC & \mpcbest{0.33} & \mpcbest{0.0} & \mpcbest{468} & 8.98 & 0.39 \\
 \bottomrule
 \end{tabular}

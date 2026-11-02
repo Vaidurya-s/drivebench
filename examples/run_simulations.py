@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Batch MPC vs PID vs optimised PID on all motor scenarios.
+"""Batch PID vs optimised PID vs LQR vs MPC on all motor scenarios.
 
 Writes one figure and one metrics table per scenario plus
 ``metrics_summary.json`` under ``results/``. Optimised PID uses the frozen
@@ -13,8 +13,8 @@ from pathlib import Path
 
 from mpc_core.sim.batch import BatchItem, run_batch, summary_dict
 from mpc_core.sim.config import default_demo_config
-from mpc_core.sim.playground import TripleRun
-from mpc_core.sim.plotting import save_triple_figure
+from mpc_core.sim.playground import ControllerRuns
+from mpc_core.sim.plotting import save_runs_figure
 
 ROWS = (
     ("IAE [RPM s]", "iae"),
@@ -33,10 +33,10 @@ def _fmt(v: float | None) -> str:
     return "—" if v is None else f"{v:.3g}"
 
 
-def _table(t: TripleRun) -> str:
-    lines = ["| Metric | MPC | PID | Opt. PID |", "| --- | --- | --- | --- |"]
+def _table(t: ControllerRuns) -> str:
+    lines = ["| Metric | PID | Opt. PID | LQR | MPC |", "| --- | --- | --- | --- | --- |"]
     for label, attr in ROWS:
-        cells = [_fmt(getattr(r.metrics, attr)) for r in (t.mpc, t.pid, t.optimized_pid)]
+        cells = [_fmt(getattr(r.metrics, attr)) for r in t.runs.values()]
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
@@ -47,10 +47,9 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     cfg = default_demo_config()
 
-    def write(item: BatchItem, t: TripleRun) -> None:
-        save_triple_figure(
-            title=item.title, mpc=t.mpc, pid=t.pid, optimized_pid=t.optimized_pid,
-            path=out_dir / f"{item.key}.png",
+    def write(item: BatchItem, t: ControllerRuns) -> None:
+        save_runs_figure(
+            title=item.title, runs=t.runs, path=out_dir / f"{item.key}.png",
         )
         g = t.tune.gains
         (out_dir / f"{item.key}_metrics.md").write_text(

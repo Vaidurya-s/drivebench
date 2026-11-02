@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from mpc_core.sim.metrics import SimulationMetrics
 from mpc_core.sim.simulate import SimulationResult
 
-COLORS = {"MPC": "#2563eb", "PID": "#71717a", "Opt. PID": "#0d9488"}
+COLORS = {"MPC": "#2563eb", "PID": "#71717a", "Opt. PID": "#0d9488", "LQR": "#d97706"}
 
 
 def apply_plot_style() -> None:
@@ -27,36 +27,31 @@ def apply_plot_style() -> None:
     )
 
 
-def save_triple_figure(
-    *,
-    title: str,
-    mpc: SimulationResult,
-    pid: SimulationResult,
-    optimized_pid: SimulationResult,
-    path: Path,
-) -> None:
-    """Speed, armature current, voltage and torque for the three controllers."""
+def save_runs_figure(*, title: str, runs, path: Path) -> None:
+    """Speed, armature current, voltage and torque for every controller in ``runs``."""
     apply_plot_style()
     fig, axes = plt.subplots(4, 1, sharex=True, figsize=(10, 10), constrained_layout=True)
-    runs = (("PID", pid), ("Opt. PID", optimized_pid), ("MPC", mpc))
-    axes[0].plot(mpc.time_s, mpc.ref_rpm, "k--", label="Reference", alpha=0.7)
-    for name, run in runs:
+    names = {"pid": "PID", "optimized_pid": "Opt. PID", "lqr": "LQR", "mpc": "MPC"}
+    first = next(iter(runs.items()))[1]
+    axes[0].plot(first.time_s, first.ref_rpm, "k--", label="Reference", alpha=0.7)
+    for cid, run in runs.items():
+        name = names[cid]
         axes[0].plot(run.time_s, run.speed_rpm, label=name, color=COLORS[name])
         axes[1].plot(run.time_s, run.i_a, label=name, color=COLORS[name])
         axes[2].plot(run.time_s, run.v_applied, label=name, color=COLORS[name])
         axes[3].plot(run.time_s, run.torque_nm, label=name, color=COLORS[name])
-    axes[3].plot(mpc.time_s, mpc.load_nm, "k:", label="Load torque", alpha=0.8)
+    axes[3].plot(first.time_s, first.load_nm, "k:", label="Load torque", alpha=0.8)
     for sign in (-1, 1):
-        axes[1].axhline(sign * mpc.i_max, color="#a1a1aa", ls="--", lw=1)
-        axes[2].axhline(sign * mpc.v_max, color="#a1a1aa", ls="--", lw=1)
+        axes[1].axhline(sign * first.i_max, color="#a1a1aa", ls="--", lw=1)
+        axes[2].axhline(sign * first.v_max, color="#a1a1aa", ls="--", lw=1)
     axes[0].set_ylabel("Speed [RPM]")
     axes[1].set_ylabel("Armature current [A]")
     axes[2].set_ylabel("Applied voltage [V]")
     axes[3].set_ylabel("Torque [N m]")
     axes[3].set_xlabel("Time [s]")
     axes[0].set_title(title)
-    axes[0].legend(loc="best", ncols=4)
-    axes[3].legend(loc="best", ncols=4)
+    axes[0].legend(loc="best", ncols=5)
+    axes[3].legend(loc="best", ncols=5)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=150)

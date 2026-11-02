@@ -1,6 +1,6 @@
 # Academic report (Industrial Control)
 
-Course write-up for the offset-free MPC vs PID lab on the PMDC motor drive.
+Course write-up for the PID, optimised PID, LQR and MPC lab on the PMDC motor drive.
 
 | Artifact | Path |
 | --- | --- |
@@ -19,7 +19,7 @@ British spelling. Prefer numbers from `metrics_summary.json` after a metrics reb
 - **Optimised PID** uses the frozen gains in `optimized_pid_gains` (tuned once on `speed_tracking`, also stored in `data/ui/optimized_pid.json`). Nothing is retuned per scenario.
 - **`robustness_model_mismatch`** compares MPC, the frozen optimised PID and an optimised PID retuned on the mismatched plant.
 - **MPC / motor / drive settings** are stored under `mpc`, `motor`, `drive`, `timing`.
-- Simulation PNGs under `figures/<scenario>.png` are produced by the metrics script. Architecture and bar charts (`architecture.png`, `iae_bars.png`, `current_limit_bars.png`, `robustness_bars.png`) and the generated tables come from the charts script. The opening MPC loop figure is `assets/mpc-infographic.png`.
+- Simulation PNGs under `figures/<scenario>.png` are produced by the metrics script. Architecture and bar charts (`architecture.png`, `iae_bars.png`, `current_limit_bars.png`, `robustness_bars.png`) and the generated tables come from the charts script.
 
 ## Rebuild from the repo root
 
@@ -49,4 +49,4 @@ A full metrics rebuild takes a few minutes. Do not hand-edit numbers in `main.te
 
 ## Layout of `main.tex`
 
-Abstract → MPC loop infographic → introduction → models (plant, prediction model and observer, drive, measurement) → controllers → system design → experimental setup → results (generated table, IAE bars, traces, drive limits, noise and robustness) → discussion and limitations → conclusion → references.
+Abstract → introduction → models (plant, prediction model and observer, drive, measurement) → controllers → system design → experimental setup → results (generated table, IAE bars, traces, drive limits, noise and robustness) → discussion and limitations → conclusion → references.

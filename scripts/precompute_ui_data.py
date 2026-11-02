@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 from mpc_core.sim.config import default_demo_config
-from mpc_core.sim.metrics import scorecard_row
+from mpc_core.sim.batch import CONTROLLER_LABELS, result_row
+from mpc_core.sim.simulate import CONTROLLER_IDS
 from mpc_core.sim.pid import PIDGains
 from mpc_core.sim.playground import (
     PRESETS,
@@ -12,7 +13,7 @@ from mpc_core.sim.playground import (
     baseline_optimized_pid,
     build_playground_scenario,
     run_options_from_playground,
-    run_triple,
+    run_bench,
     save_frozen_pid,
 )
 from mpc_core.sim.scenarios import MISMATCH_CASES, SCENARIOS
@@ -22,7 +23,7 @@ from mpc_core.sim.ui_cache import (
     SCORECARD_PATH,
     named_playground_path,
     serialize_step_log,
-    serialize_triple,
+    serialize_runs,
     step_through_path,
     write_json,
 )
@@ -30,15 +31,16 @@ from mpc_core.sim.ui_cache import (
 
 def _playground_bundle(name: str, params: PlaygroundParams) -> None:
     cfg = default_demo_config()
-    triple = run_triple(
+    triple = run_bench(
         build_playground_scenario(params),
         cfg=cfg,
         options=run_options_from_playground(params),
         horizon_steps=params.mpc_horizon,
         mpc_tracking_weight=params.mpc_tracking_weight,
         plain_pid_gains=PIDGains(kp=params.pid_kp, ki=params.pid_ki, kd=params.pid_kd),
+        lqr_weights=params.lqr_weights,
     )
-    write_json(named_playground_path(name), serialize_triple(triple, params))
+    write_json(named_playground_path(name), serialize_runs(triple, params))
     print(f"Wrote playground/{name}.json", flush=True)
 
 
@@ -56,13 +58,11 @@ def _scorecard() -> None:
     )
     rows = []
     for _, title, scenario, opt in items:
-        triple = run_triple(scenario, cfg=cfg, options=opt)
-        for label, run in (
-            ("MPC", triple.mpc),
-            ("PID", triple.pid),
-            ("Optimized PID", triple.optimized_pid),
-        ):
-            rows.append({"Scenario": title, "Controller": label, **scorecard_row(run.metrics)})
+        triple = run_bench(scenario, cfg=cfg, options=opt)
+        for cid in CONTROLLER_IDS:
+            rows.append(
+                {"Scenario": title, "Controller": CONTROLLER_LABELS[cid], **result_row(triple[cid])}
+            )
         print(f"scorecard: {title}", flush=True)
     write_json(SCORECARD_PATH, {"rows": rows})
     print(f"Wrote {SCORECARD_PATH.name}", flush=True)

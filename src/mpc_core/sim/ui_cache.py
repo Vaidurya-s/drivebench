@@ -15,8 +15,20 @@ import numpy as np
 from mpc_core.sim.metrics import SimulationMetrics
 from mpc_core.sim.pid import PIDGains
 from mpc_core.sim.pid_tune import TuneResult
-from mpc_core.sim.playground import PlaygroundParams, TripleRun
-from mpc_core.sim.simulate import MpcStepLog, MpcStepSnapshot, SimulationResult
+from mpc_core.sim.config import default_demo_config
+from mpc_core.sim.playground import (
+    ControllerRuns,
+    PlaygroundParams,
+    build_playground_scenario,
+    run_options_from_playground,
+)
+from mpc_core.sim.simulate import (
+    CONTROLLER_IDS,
+    MpcStepLog,
+    MpcStepSnapshot,
+    SimulationResult,
+    run_closed_loop,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 DATA_UI = ROOT / "data" / "ui"
@@ -26,6 +38,7 @@ SCORECARD_PATH = DATA_UI / "scorecard.json"
 
 DEFAULT_STEP_HORIZON = 60
 TRACE_STRIDE = 2
+SCHEMA_VERSION = 2  # per-controller entries, LQR added
 
 _FLOAT_FIELDS = (
     "time_s",
@@ -47,8 +60,20 @@ def _round_list(xs: np.ndarray | list[float], ndigits: int = 4) -> list[float]:
     return [round(float(v), ndigits) for v in arr.tolist()]
 
 
-def params_cache_key(p: PlaygroundParams) -> str:
-    items = sorted(p.__dict__.items())
+def params_cache_key(p: PlaygroundParams, controller: str | None = None) -> str:
+    """Key of the scenario parameters a controller's result depends on.
+
+    LQR weights only enter the LQR key, so editing them invalidates LQR results and
+    nothing else. ``controller=None`` gives the key shared by PID, Opt. PID and MPC.
+    """
+    items = sorted(
+        (k, v)
+        for k, v in p.__dict__.items()
+        if controller == "lqr" or not k.startswith("lqr_")
+    )
+    if controller == "lqr":
+        skip = ("pid_kp", "pid_ki", "pid_kd", "mpc_horizon", "mpc_tracking_weight")
+        items = [(k, v) for k, v in items if k not in skip]
     return json.dumps(items, separators=(",", ":"), default=str)
 
 
@@ -79,6 +104,9 @@ def serialize_run(run: SimulationResult) -> dict:
         payload["mpc_solve_ms"] = _round_list(run.mpc_solve_ms, 3)
     if run.pid_gains is not None:
         payload["pid_gains"] = asdict(run.pid_gains)
+    if run.exec_ms is not None:
+        payload["exec_ms"] = _round_list(run.exec_ms, 3)
+    payload["config"] = run.config
     return payload
 
 
@@ -102,50 +130,72 @@ def deserialize_run(data: dict) -> SimulationResult:
             else np.asarray(data["mpc_solve_ms"], dtype=float)
         ),
         pid_gains=pid_gains,
+        exec_ms=None if data.get("exec_ms") is None else np.asarray(data["exec_ms"], dtype=float),
+        config=dict(data.get("config", {})),
     )
 
 
-def serialize_triple(triple: TripleRun, params: PlaygroundParams) -> dict:
+def serialize_runs(bundle: ControllerRuns, params: PlaygroundParams) -> dict:
     return {
+        "schema_version": SCHEMA_VERSION,
         "params": {f.name: getattr(params, f.name) for f in fields(params)},
         "params_key": params_cache_key(params),
-        "mpc": serialize_run(triple.mpc),
-        "pid": serialize_run(triple.pid),
-        "optimized_pid": serialize_run(triple.optimized_pid),
+        "lqr_key": params_cache_key(params, "lqr"),
+        "runs": {cid: serialize_run(bundle[cid]) for cid in bundle},
         "tune": {
-            "gains": asdict(triple.tune.gains),
-            "final_objective": triple.tune.final_objective,
-            "metrics_iae": triple.tune.metrics_iae,
-            "violation_steps": triple.tune.violation_steps,
+            "gains": asdict(bundle.tune.gains),
+            "final_objective": bundle.tune.final_objective,
+            "metrics_iae": bundle.tune.metrics_iae,
+            "violation_steps": bundle.tune.violation_steps,
         },
     }
 
 
-def deserialize_triple(data: dict) -> TripleRun:
+def deserialize_runs(data: dict) -> ControllerRuns:
     tune = TuneResult(
         gains=PIDGains(**data["tune"]["gains"]),
         final_objective=float(data["tune"]["final_objective"]),
         metrics_iae=float(data["tune"]["metrics_iae"]),
         violation_steps=int(data["tune"]["violation_steps"]),
     )
-    return TripleRun(
-        mpc=deserialize_run(data["mpc"]),
-        pid=deserialize_run(data["pid"]),
-        optimized_pid=deserialize_run(data["optimized_pid"]),
-        tune=tune,
-    )
+    runs = {
+        cid: deserialize_run(data["runs"][cid]) for cid in CONTROLLER_IDS if cid in data["runs"]
+    }
+    return ControllerRuns(runs=runs, tune=tune)
 
 
-def load_playground_triple(params: PlaygroundParams) -> TripleRun | None:
+def load_playground_runs(params: PlaygroundParams) -> ControllerRuns | None:
+    """Cached PID / Opt. PID / MPC runs; LQR is reused only if its own key matches.
+
+    Returns None when the shared key misses (the caller then simulates live). A stale
+    LQR entry is recomputed here (LQR is cheap) so other controllers stay cached.
+    """
     key = params_cache_key(params)
-    if PLAYGROUND_DIR.exists():
-        for path in sorted(PLAYGROUND_DIR.glob("*.json")):
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if data.get("params_key") == key:
-                return deserialize_triple(data)
+    lqr_key = params_cache_key(params, "lqr")
+    if not PLAYGROUND_DIR.exists():
+        return None
+    for path in sorted(PLAYGROUND_DIR.glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get("schema_version") != SCHEMA_VERSION or data.get("params_key") != key:
+            continue
+        bundle = deserialize_runs(data)
+        if data.get("lqr_key") != lqr_key or "lqr" not in bundle.runs:
+            lqr = run_closed_loop(
+                build_playground_scenario(params),
+                "lqr",
+                cfg=default_demo_config(),
+                options=run_options_from_playground(params),
+                lqr_weights=params.lqr_weights,
+            )
+            runs = dict(bundle.runs)
+            runs["lqr"] = lqr
+            bundle = ControllerRuns(
+                runs={c: runs[c] for c in CONTROLLER_IDS if c in runs}, tune=bundle.tune
+            )
+        return bundle
     return None
 
 
@@ -170,6 +220,9 @@ def serialize_step_log(log: MpcStepLog, *, scenario_key: str, horizon: int) -> d
                 "predicted_y": _round_list(s.predicted_y, 3),
                 "predicted_i": _round_list(s.predicted_i, 3),
                 "planned_u": round(float(s.planned_u), 4),
+                "planned_u_traj": _round_list(s.planned_u_traj, 3),
+                "active_constraints": list(s.active_constraints),
+                "d_v_hat": round(float(s.d_v_hat), 4),
                 "solve_ms": round(float(s.solve_ms), 3),
                 "caption": s.caption,
             }
@@ -193,6 +246,9 @@ def load_step_log(scenario_key: str, horizon: int) -> MpcStepLog | None:
             predicted_y=list(s["predicted_y"]),
             predicted_i=list(s.get("predicted_i", [])),
             planned_u=float(s["planned_u"]),
+            planned_u_traj=list(s.get("planned_u_traj", [])),
+            active_constraints=list(s.get("active_constraints", [])),
+            d_v_hat=float(s.get("d_v_hat", 0.0)),
             solve_ms=float(s["solve_ms"]),
             caption=str(s["caption"]),
         )

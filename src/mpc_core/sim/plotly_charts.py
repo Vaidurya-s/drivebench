@@ -1,310 +1,228 @@
-"""Plotly figures for the Streamlit teaching UI (DESIGN.md chart tokens)."""
+"""DriveBench Plotly chart system: graphite plot area, one physical quantity per axis.
+
+Every figure comes from :func:`chart_layout` so fonts, grid, legend rail and hover are
+identical. Controllers keep one colour *and* one dash style everywhere.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable, Mapping
 
+import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from mpc_core.sim.theme import (
-    ACCENT,
-    BORDER,
-    COBALT,
-    COPPER,
-    MPC_COLOR,
-    OPT_PID_COLOR,
-    PID_COLOR,
-    SURFACE_SUBTLE,
-    TEXT_MUTED,
-    TEXT_PRIMARY,
-    TEXT_SECONDARY,
-)
+from mpc_core.sim import theme as T
 
 if TYPE_CHECKING:
     from mpc_core.sim.simulate import SimulationResult
 
+TICK_FONT = dict(family=T.FONT_MONO, size=12, color=T.TEXT_SECONDARY)
 
-def _base_layout(**kwargs) -> dict:
+QUANTITIES: dict[str, tuple[str, str]] = {
+    "speed": ("Speed", "Speed [RPM]"),
+    "current": ("Armature current", "Armature current [A]"),
+    "voltage": ("Drive voltage", "Voltage [V]"),
+    "torque": ("Torque", "Torque [N·m]"),
+    "power": ("Power and energy", "Power [W]"),
+}
+
+
+def chart_layout(title: str = "", *, height: int = 420, **kwargs) -> dict:
     layout = dict(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor=SURFACE_SUBTLE,
-        font=dict(family="Inter, system-ui, sans-serif", size=14, color=TEXT_PRIMARY),
+        title=dict(text=title, x=0.0, xanchor="left", font=dict(size=16, color=T.TEXT_PRIMARY)),
+        paper_bgcolor=T.PANEL,
+        plot_bgcolor=T.CANVAS,
+        font=dict(family=T.FONT_SANS, size=13, color=T.TEXT_PRIMARY),
         legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.06,
-            x=0,
-            font=dict(size=13),
+            orientation="v", x=1.01, xanchor="left", y=1.0, yanchor="top",
+            bgcolor="rgba(0,0,0,0)", font=dict(size=13, color=T.TEXT_PRIMARY),
         ),
-        margin=dict(l=48, r=24, t=72, b=48),
+        margin=dict(l=64, r=150, t=52, b=52),
         hovermode="x unified",
+        hoverlabel=dict(bgcolor=T.RAISED, font=dict(family=T.FONT_MONO, size=12, color=T.TEXT_PRIMARY)),
+        height=height,
     )
     layout.update(kwargs)
     return layout
 
 
-def _style_axes(fig: go.Figure) -> None:
-    fig.update_xaxes(
-        showgrid=True,
-        gridcolor=BORDER,
-        zeroline=False,
-        title_font=dict(size=13, color=TEXT_SECONDARY),
-        tickfont=dict(size=12, color=TEXT_MUTED),
-    )
-    fig.update_yaxes(
-        showgrid=True,
-        gridcolor=BORDER,
-        zeroline=False,
-        title_font=dict(size=13, color=TEXT_SECONDARY),
-        tickfont=dict(size=12, color=TEXT_MUTED),
+def style_axes(fig: go.Figure) -> None:
+    for update in (fig.update_xaxes, fig.update_yaxes):
+        update(
+            showgrid=True, gridcolor=T.GRID, gridwidth=1, zeroline=False,
+            linecolor=T.BORDER, tickfont=TICK_FONT,
+            title_font=dict(size=13, color=T.TEXT_SECONDARY),
+        )
+
+
+def _line(cid: str) -> dict:
+    return dict(
+        color=T.CONTROLLER_COLORS[cid], width=T.CONTROLLER_WIDTH[cid], dash=T.CONTROLLER_DASH[cid]
     )
 
 
-def triple_control_figure(
+def _add_events(fig: go.Figure, events: Iterable[tuple[float, str]], rows: list[int] | None = None) -> None:
+    for t, label in events:
+        fig.add_vline(
+            x=t, line=dict(color=T.TEXT_MUTED, width=1, dash="dot"),
+            annotation_text=label, annotation_font=dict(size=11, color=T.TEXT_SECONDARY),
+            annotation_position="top left", row="all" if rows is None else rows[0], col="all" if rows is None else 1,
+        )
+
+
+def _band(fig: go.Figure, lo: float, hi: float, name: str, row: int | None = None) -> None:
+    kw = {} if row is None else dict(row=row, col=1)
+    fig.add_hrect(y0=hi, y1=hi * 1.6 if hi > 0 else hi, fillcolor=T.CRITICAL, opacity=0.08, line_width=0, **kw)
+    fig.add_hrect(y0=lo * 1.6 if lo < 0 else lo, y1=lo, fillcolor=T.CRITICAL, opacity=0.08, line_width=0, **kw)
+    for y in (lo, hi):
+        fig.add_hline(y=y, line=dict(color=T.LIMIT, width=1, dash="dash"), **kw)
+
+
+def cumulative_energy(run: SimulationResult, ts_s: float) -> np.ndarray:
+    return np.cumsum(run.p_elec_w) * ts_s
+
+
+def quantity_figure(
+    runs: Mapping[str, SimulationResult],
+    quantity: str,
     *,
-    mpc: SimulationResult,
-    pid: SimulationResult,
-    opt_pid: SimulationResult,
-    step_at_s: float | None = None,
-    load_change_at_s: float | None = None,
+    events: Iterable[tuple[float, str]] = (),
+    ts_s: float = 0.02,
 ) -> go.Figure:
-    """Speed, armature current, voltage and torque for all three controllers.
+    """One tab of the bench: every controller on a single quantity."""
+    first = next(iter(runs.values()))
+    title, ylabel = QUANTITIES[quantity]
+    if quantity == "power":
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.12,
+                            row_heights=[0.55, 0.45])
+        for cid, run in runs.items():
+            fig.add_trace(go.Scatter(x=run.time_s, y=run.p_elec_w, name=T.CONTROLLER_LABELS[cid],
+                                     legendgroup=cid, line=_line(cid)), row=1, col=1)
+            fig.add_trace(go.Scatter(x=run.time_s, y=cumulative_energy(run, ts_s),
+                                     name=T.CONTROLLER_LABELS[cid], legendgroup=cid,
+                                     showlegend=False, line=_line(cid)), row=2, col=1)
+        fig.update_yaxes(title_text="Electrical power [W]", row=1, col=1)
+        fig.update_yaxes(title_text="Net electrical energy [J]", row=2, col=1)
+        fig.update_xaxes(title_text="Time [s]", row=2, col=1)
+        fig.update_layout(**chart_layout("Power and energy", height=560))
+        _add_events(fig, events)
+        style_axes(fig)
+        return fig
 
-    One shared time axis; the current and voltage panels show the drive limits
-    as dashed lines.
-    """
-    mpc_w, other_w = 2.6, 1.9
-    fig = make_subplots(
-        rows=4,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.06,
-        subplot_titles=(
-            "Motor speed",
-            "Armature current",
-            "Applied armature voltage",
-            "Electromagnetic and load torque",
-        ),
-    )
-    t = mpc.time_s
-    fig.add_trace(
-        go.Scatter(
-            x=t,
-            y=mpc.ref_rpm,
-            name="Reference",
-            line=dict(dash="dash", color=TEXT_PRIMARY, width=1.5),
-        ),
-        row=1,
-        col=1,
-    )
-    # PID / Opt first, MPC last so it sits on top of the stack.
-    for name, run, color, w in (
-        ("PID", pid, PID_COLOR, other_w),
-        ("Optimized PID", opt_pid, OPT_PID_COLOR, other_w),
-        ("MPC", mpc, MPC_COLOR, mpc_w),
-    ):
-        fig.add_trace(
-            go.Scatter(x=t, y=run.speed_rpm, name=name, line=dict(color=color, width=w)),
-            row=1,
-            col=1,
-        )
-        for row, y in ((2, run.i_a), (3, run.v_applied), (4, run.torque_nm)):
-            fig.add_trace(
-                go.Scatter(
-                    x=t,
-                    y=y,
-                    name=name,
-                    line=dict(color=color, width=w),
-                    showlegend=False,
-                ),
-                row=row,
-                col=1,
-            )
-    fig.add_trace(
-        go.Scatter(
-            x=t,
-            y=mpc.load_nm,
-            name="Load torque",
-            line=dict(color=COPPER, width=1.6, dash="dot"),
-        ),
-        row=4,
-        col=1,
-    )
-    for sign in (-1, 1):
-        fig.add_hline(
-            y=sign * mpc.i_max, line_dash="dash", line_color=TEXT_MUTED, line_width=1, row=2, col=1
-        )
-        fig.add_hline(
-            y=sign * mpc.v_max, line_dash="dash", line_color=TEXT_MUTED, line_width=1, row=3, col=1
-        )
-
-    for x, color, label, ypos in (
-        (step_at_s, TEXT_MUTED, "Reference step", 1.02),
-        (load_change_at_s, COPPER, "Load change", 0.98),
-    ):
-        if x is None or x <= 0:
-            continue
-        for row in (1, 2, 3, 4):
-            fig.add_vline(x=x, line_dash="dot", line_color=color, line_width=1.2, row=row, col=1)
-        fig.add_annotation(
-            x=x,
-            y=ypos,
-            yref="paper",
-            text=label,
-            showarrow=False,
-            font=dict(size=11, color=color),
-            xanchor="left",
-        )
-
-    fig.update_yaxes(title_text="RPM", row=1, col=1)
-    fig.update_yaxes(title_text="A", row=2, col=1)
-    fig.update_yaxes(title_text="V", row=3, col=1)
-    fig.update_yaxes(title_text="N m", row=4, col=1)
-    fig.update_xaxes(title_text="Time [s]", row=4, col=1)
-    fig.update_layout(**_base_layout(height=860))
-    fig.update_annotations(font=dict(size=14, color=TEXT_SECONDARY))
-    _style_axes(fig)
+    fig = go.Figure()
+    if quantity == "speed":
+        fig.add_trace(go.Scatter(x=first.time_s, y=first.ref_rpm, name="Reference",
+                                 line=dict(color=T.SETPOINT, width=1.5, dash="dash")))
+    for cid, run in runs.items():
+        y = {
+            "speed": run.speed_rpm, "current": run.i_a, "voltage": run.v_applied,
+            "torque": run.torque_nm,
+        }[quantity]
+        fig.add_trace(go.Scatter(x=run.time_s, y=y, name=T.CONTROLLER_LABELS[cid], line=_line(cid)))
+    if quantity == "voltage":
+        fig.add_trace(go.Scatter(x=first.time_s, y=next(iter(runs.values())).v_cmd * np.nan,
+                                 showlegend=False, hoverinfo="skip"))
+    if quantity == "torque":
+        fig.add_trace(go.Scatter(x=first.time_s, y=first.load_nm, name="Load torque",
+                                 line=dict(color=T.LOAD, width=1.5, dash="dot")))
+    if quantity == "current":
+        _band(fig, -first.i_max, first.i_max, "I_max")
+    if quantity == "voltage":
+        _band(fig, -first.v_max, first.v_max, "V_max")
+    fig.update_yaxes(title_text=ylabel)
+    fig.update_xaxes(title_text="Time [s]")
+    height = 460 if quantity == "speed" else 380
+    fig.update_layout(**chart_layout(title, height=height))
+    _add_events(fig, events)
+    style_axes(fig)
     return fig
 
 
-def mpc_horizon_figure(snapshot, ts_s: float = 0.01) -> go.Figure:
-    """Predicted speed and armature current over the horizon for one MPC step."""
+def requested_vs_applied_figure(run: SimulationResult, label: str) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=run.time_s, y=run.v_cmd, name="Requested",
+                             line=dict(color=T.CONTROLLER_COLORS.get(run.controller_id, T.ACCENT), width=1.5, dash="dot")))
+    fig.add_trace(go.Scatter(x=run.time_s, y=run.v_applied, name="Applied (after drive)",
+                             line=dict(color=T.TEXT_PRIMARY, width=1.8)))
+    _band(fig, -run.v_max, run.v_max, "V_max")
+    fig.update_yaxes(title_text="Voltage [V]")
+    fig.update_xaxes(title_text="Time [s]")
+    fig.update_layout(**chart_layout(f"{label}: requested vs applied voltage", height=320))
+    style_axes(fig)
+    return fig
+
+
+def mpc_explorer_figure(snapshot, *, ts_s: float, i_max: float, v_max: float, max_dv: float | None = None) -> go.Figure:
+    """Predicted speed, armature current and planned voltage over the horizon for one step."""
     h = len(snapshot.predicted_y)
-    future_t = [snapshot.time_s + (i + 1) * ts_s for i in range(h)]
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.1,
-        row_heights=[0.65, 0.35],
-        subplot_titles=("Predicted speed", "Predicted armature current"),
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[snapshot.time_s],
-            y=[snapshot.y_meas],
-            mode="markers",
-            name="Measured now",
-            marker=dict(size=14, color=ACCENT, line=dict(width=2, color=TEXT_PRIMARY)),
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=future_t,
-            y=snapshot.predicted_y,
-            mode="lines",
-            name="Predicted speed",
-            line=dict(color=ACCENT, width=2.5),
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_hline(
-        y=snapshot.y_ref,
-        line_dash="dash",
-        line_color=TEXT_PRIMARY,
-        line_width=1.5,
-        annotation_text="Reference",
-        annotation_position="top right",
-        annotation_font=dict(size=12, color=TEXT_PRIMARY),
-        row=1,
-        col=1,
-    )
+    t_future = [snapshot.time_s + (i + 1) * ts_s for i in range(h)]
+    c = T.CONTROLLER_COLORS["mpc"]
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08,
+                        row_heights=[0.4, 0.3, 0.3])
+    fig.add_trace(go.Scatter(x=[snapshot.time_s], y=[snapshot.y_meas], mode="markers",
+                             name="Measured now",
+                             marker=dict(size=12, color=T.ACCENT, line=dict(width=2, color=T.TEXT_PRIMARY))),
+                  row=1, col=1)
+    fig.add_trace(go.Scatter(x=t_future, y=snapshot.predicted_y, name="Predicted speed",
+                             line=dict(color=c, width=2.6)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=[snapshot.time_s, t_future[-1]] if h else [], y=[snapshot.y_ref] * 2,
+                             name="Reference", line=dict(color=T.SETPOINT, width=1.5, dash="dash")),
+                  row=1, col=1)
     if snapshot.predicted_i:
-        fig.add_trace(
-            go.Scatter(
-                x=future_t,
-                y=snapshot.predicted_i,
-                mode="lines",
-                name="Predicted current",
-                line=dict(color=COPPER, width=2.2),
-            ),
-            row=2,
-            col=1,
-        )
-    fig.update_yaxes(title_text="RPM", row=1, col=1)
-    fig.update_yaxes(title_text="A", row=2, col=1)
-    fig.update_xaxes(title_text="Time [s]", row=2, col=1)
-    fig.update_layout(**_base_layout(height=560, margin=dict(l=56, r=24, t=72, b=48)))
-    fig.update_annotations(font=dict(size=13, color=TEXT_SECONDARY))
-    _style_axes(fig)
+        fig.add_trace(go.Scatter(x=t_future, y=snapshot.predicted_i, name="Predicted current",
+                                 line=dict(color=c, width=2.2)), row=2, col=1)
+        _band(fig, -i_max, i_max, "I_max", row=2)
+    plan = getattr(snapshot, "planned_u_traj", None) or []
+    if plan:
+        fig.add_trace(go.Scatter(x=t_future[: len(plan)], y=plan, name="Planned voltage",
+                                 line=dict(color=c, width=2.2, shape="hv")), row=3, col=1)
+        _band(fig, -v_max, v_max, "V_max", row=3)
+    fig.update_yaxes(title_text="Speed [RPM]", row=1, col=1)
+    fig.update_yaxes(title_text="Current [A]", row=2, col=1)
+    fig.update_yaxes(title_text="Voltage [V]", row=3, col=1)
+    fig.update_xaxes(title_text="Time [s]", row=3, col=1)
+    fig.update_layout(**chart_layout("Prediction over the horizon", height=620))
+    style_axes(fig)
     return fig
 
 
-def metrics_bar_chart(
-    labels: list[str],
-    values: list[float],
-    title: str,
-    *,
-    y_title: str | None = None,
-) -> go.Figure:
-    colors = [controller_color(label) for label in labels]
-    text = [f"{v:.0f}" if abs(v) >= 10 else f"{v:.2g}" for v in values]
-    fig = go.Figure(
-        go.Bar(
-            x=labels,
-            y=values,
-            marker_color=colors,
-            text=text,
-            textposition="outside",
-            cliponaxis=False,
-        )
-    )
-    fig.update_layout(
-        **_base_layout(
-            title=dict(text=title, font=dict(size=15, color=TEXT_PRIMARY)),
-            height=300,
-            margin=dict(l=40, r=20, t=56, b=40),
-            showlegend=False,
-            yaxis_title=y_title,
-        )
-    )
-    _style_axes(fig)
+def pole_figure(eigenvalues: np.ndarray) -> go.Figure:
+    th = np.linspace(0, 2 * np.pi, 200)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=np.cos(th), y=np.sin(th), mode="lines", name="Unit circle",
+                             line=dict(color=T.BORDER, width=1.5), hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=eigenvalues.real, y=eigenvalues.imag, mode="markers",
+                             name="Closed-loop poles",
+                             marker=dict(size=11, symbol="x", color=T.CONTROLLER_COLORS["lqr"], line=dict(width=2))))
+    fig.update_xaxes(title_text="Real", range=[-1.1, 1.1])
+    fig.update_yaxes(title_text="Imaginary", range=[-1.1, 1.1], scaleanchor="x", scaleratio=1)
+    fig.update_layout(**chart_layout("Closed-loop poles (z-plane)", height=360, hovermode="closest"))
+    style_axes(fig)
     return fig
-
-
-def controller_color(label: str) -> str:
-    key = label.strip().lower()
-    if key == "mpc":
-        return MPC_COLOR
-    if key in ("optimized pid", "opt. pid", "opt pid"):
-        return OPT_PID_COLOR
-    return PID_COLOR
 
 
 def grouped_metrics_figure(
-    controllers: list[str],
-    metrics: dict[str, list[float]],
+    series: Mapping[str, list[float]],
+    categories: list[str],
     *,
     title: str,
+    y_title: str,
+    height: int = 360,
 ) -> go.Figure:
-    """Side-by-side controller bars for several metrics on one figure."""
+    """Grouped bars: ``series`` maps controller id -> one value per category."""
     fig = go.Figure()
-    metric_names = list(metrics.keys())
-    for idx, ctrl in enumerate(controllers):
-        ys = [metrics[m][idx] for m in metric_names]
-        fig.add_trace(
-            go.Bar(
-                name=ctrl,
-                x=metric_names,
-                y=ys,
-                marker_color=controller_color(ctrl),
-                text=[f"{v:.0f}" if abs(v) >= 10 else f"{v:.2g}" for v in ys],
-                textposition="outside",
-                cliponaxis=False,
-            )
-        )
-    layout_kwargs: dict = dict(
-        barmode="group",
-        height=380,
-        margin=dict(l=40, r=20, t=56, b=48),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, xanchor="left"),
-    )
-    if title:
-        layout_kwargs["title"] = dict(text=title, font=dict(size=16, color=TEXT_PRIMARY), y=0.98)
-    fig.update_layout(**_base_layout(**layout_kwargs))
-    _style_axes(fig)
+    for cid, ys in series.items():
+        fig.add_trace(go.Bar(
+            name=T.CONTROLLER_LABELS[cid], x=categories, y=ys, marker_color=T.CONTROLLER_COLORS[cid],
+            text=[f"{v:.3g}" for v in ys], textposition="outside", cliponaxis=False,
+            textfont=dict(family=T.FONT_MONO, size=11, color=T.TEXT_SECONDARY),
+        ))
+    fig.update_yaxes(title_text=y_title)
+    fig.update_layout(**chart_layout(title, height=height, barmode="group", hovermode="closest"))
+    style_axes(fig)
     return fig
+
+
+def controller_color(cid: str) -> str:
+    return T.CONTROLLER_COLORS[cid]

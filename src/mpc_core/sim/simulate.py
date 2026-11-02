@@ -17,13 +17,15 @@ import numpy as np
 from mpc_core import MpcState, SetpointLimits, solve
 from mpc_core.sim.config import DemoConfig, default_demo_config, voltage_limits
 from mpc_core.sim.drive import DriveConfig, MotorDrive
+from mpc_core.sim.lqr import LqrState, LqrWeights, design_lqr, lqr_step
 from mpc_core.sim.metrics import SimulationMetrics, compute_metrics
 from mpc_core.sim.pid import PIDGains, PIDState, pid_step
 from mpc_core.sim.plant import initial_state, step_plant
 from mpc_core.sim.scenarios import ScenarioConfig
 from mpc_core.twin.pmdc import rad_s_to_rpm, rpm_to_rad_s
 
-ControllerKind = Literal["mpc", "pid"]
+ControllerKind = Literal["mpc", "pid", "optimized_pid", "lqr"]
+CONTROLLER_IDS = ("pid", "optimized_pid", "lqr", "mpc")
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,12 @@ class SimulationResult:
     v_max: float = 24.0
     mpc_solve_ms: np.ndarray | None = None
     pid_gains: PIDGains | None = None
+    exec_ms: np.ndarray | None = None  # controller wall time per sample, all controllers
+    config: dict = field(default_factory=dict)  # gains / weights / MPC settings
+
+    @property
+    def controller_id(self) -> str:
+        return str(self.controller)
 
     @property
     def omega_rad_s(self) -> np.ndarray:
@@ -85,6 +93,9 @@ class MpcStepSnapshot:
     caption: str
     i_a: float = 0.0
     predicted_i: list[float] = field(default_factory=list)
+    planned_u_traj: list[float] = field(default_factory=list)
+    active_constraints: list[str] = field(default_factory=list)
+    d_v_hat: float = 0.0
 
 
 @dataclass
@@ -150,6 +161,7 @@ def _run(
     mpc_terminal_weight: float | None,
     mpc_observer_gain: float | None,
     mpc_preview: bool,
+    lqr_weights: LqrWeights | None = None,
     max_steps: int | None,
     on_mpc_step: Callable[[int, float, float, float, float, object, float], None] | None,
 ) -> dict:
@@ -182,8 +194,12 @@ def _run(
     ref_ext = np.concatenate([inp.ref, np.full(h + 1, inp.ref[-1])])
 
     keys = (
-        "speed", "meas", "i", "vcmd", "vapp", "tq", "theta", "vsat", "ilim", "dhat", "ms",
+        "speed", "meas", "i", "vcmd", "vapp", "tq", "theta", "vsat", "ilim", "dhat", "ms", "exec",
     )
+    lqr_design = lqr_state = None
+    if controller == "lqr":
+        lqr_design = design_lqr(cfg.motor, cfg.dt_s, lqr_weights or LqrWeights.recommended())
+        lqr_state = LqrState()
     rec: dict[str, list] = {k: [] for k in keys}
     active_last: list[str] = []
 
@@ -219,9 +235,25 @@ def _run(
             active_last = list(result.active_constraints)
             rec["dhat"].append(result.d_hat)
             rec["ms"].append(solve_ms)
+            rec["exec"].append(solve_ms)
             if on_mpc_step is not None:
                 on_mpc_step(k, float(inp.time_s[k]), y_meas, y_r, v_cmd, result, solve_ms)
+        elif controller == "lqr":
+            t0 = time.perf_counter()
+            v_cmd, lqr_state, _ = lqr_step(
+                design=lqr_design,
+                motor=cfg.motor,
+                i_meas=plant.i_a,
+                omega_meas=rpm_to_rad_s(y_meas),
+                omega_ref=rpm_to_rad_s(y_r),
+                u_prev=drive.v_applied,
+                state=lqr_state,
+                u_min=-drive_cfg.V_max,
+                u_max=drive_cfg.V_max,
+            )
+            rec["exec"].append((time.perf_counter() - t0) * 1000.0)
         else:
+            t0 = time.perf_counter()
             v_cmd, pid_state = pid_step(
                 y=y_meas,
                 y_ref=y_r,
@@ -232,6 +264,7 @@ def _run(
                 u_min=-drive_cfg.V_max,
                 u_max=drive_cfg.V_max,
             )
+            rec["exec"].append((time.perf_counter() - t0) * 1000.0)
 
         v_app, flags = drive.step(
             v_cmd, i_a=plant.i_a, omega=plant.omega, bus_scale=float(inp.bus[k])
@@ -256,7 +289,27 @@ def _run(
         "plant_params": plant_params,
         "active_last": active_last,
         "gains": gains,
+        "lqr_design": lqr_design,
     }
+
+
+def _config_dict(controller: str, out: dict, cfg: DemoConfig) -> dict:
+    if controller == "lqr":
+        d = out["lqr_design"]
+        w = d.weights
+        return {
+            "q_current": w.q_current, "q_speed": w.q_speed, "q_integral": w.q_integral,
+            "r_voltage": w.r_voltage, "ff_enabled": w.ff_enabled,
+            "K": [float(x) for x in d.K[0]], "ts_s": d.ts_s,
+        }
+    if controller == "mpc":
+        return {
+            "horizon_steps": cfg.horizon_steps, "control_horizon": cfg.control_horizon,
+            "move_weight": cfg.move_weight, "terminal_weight": cfg.terminal_weight,
+            "observer_gain": cfg.observer_gain,
+        }
+    g = out["gains"]
+    return {"kp": g.kp, "ki": g.ki, "kd": g.kd, "tf_s": g.tf_s, "tt_s": g.tt_s}
 
 
 def run_closed_loop(
@@ -273,6 +326,7 @@ def run_closed_loop(
     mpc_terminal_weight: float | None = None,
     mpc_observer_gain: float | None = None,
     mpc_preview: bool = True,
+    lqr_weights: LqrWeights | None = None,
     result_label: str | None = None,
 ) -> SimulationResult:
     cfg = cfg or default_demo_config()
@@ -290,6 +344,7 @@ def run_closed_loop(
         mpc_terminal_weight=mpc_terminal_weight,
         mpc_observer_gain=mpc_observer_gain,
         mpc_preview=mpc_preview,
+        lqr_weights=lqr_weights,
         max_steps=None,
         on_mpc_step=None,
     )
@@ -336,7 +391,9 @@ def run_closed_loop(
         i_max=drive_cfg.I_max,
         v_max=drive_cfg.V_max,
         mpc_solve_ms=a.get("ms"),
-        pid_gains=out["gains"] if controller == "pid" else None,
+        pid_gains=out["gains"] if controller in ("pid", "optimized_pid") else None,
+        exec_ms=a.get("exec"),
+        config=_config_dict(controller, out, cfg),
     )
 
 
@@ -377,6 +434,9 @@ def run_mpc_step_log(
                 solve_ms=solve_ms,
                 caption=caption,
                 predicted_i=list(result.predicted_i or []),
+                planned_u_traj=list(result.planned_u or []),
+                active_constraints=list(result.active_constraints),
+                d_v_hat=float(getattr(result, 'd_v_hat', 0.0) or 0.0),
             )
         )
 

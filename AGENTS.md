@@ -2,7 +2,7 @@
 
 ## Repo purpose
 
-Coursework lab: offset-free SISO MPC vs PID vs scenario-tuned PID on a permanent-magnet DC (PMDC) motor speed drive (`src/mpc_core/`, Streamlit `app.py`). The plant was converted from an induction heater; the architecture (MPC, PID, optimised PID, scorecard, precomputed UI data) is the same. Educational / illustrative parameters only.
+Coursework lab: DriveBench: PID, optimised PID, LQR (LQI) and offset-free MPC on a permanent-magnet DC (PMDC) motor speed drive (`src/mpc_core/`, Streamlit `app.py`). The plant was converted from an induction heater; the architecture (MPC, PID, optimised PID, scorecard, precomputed UI data) is the same. Educational / illustrative parameters only.
 
 ## Branching and report work
 
@@ -29,9 +29,10 @@ Coursework lab: offset-free SISO MPC vs PID vs scenario-tuned PID on a permanent
 | Drive (saturation, slew, current protection) | `src/mpc_core/sim/drive.py` |
 | MPC solve / observer / constraints | `src/mpc_core/mpc.py` (dispatch), `src/mpc_core/mpc_motor.py` |
 | Closed loop, noise, mismatch | `src/mpc_core/sim/simulate.py` |
+| LQR / LQI design and controller | `src/mpc_core/sim/lqr.py`, `docs/LQR.md` |
 | Scenarios and playground presets | `src/mpc_core/sim/scenarios.py`, `playground.py` |
 | Metrics and scorecard columns | `src/mpc_core/sim/metrics.py` |
 | Defaults | `src/mpc_core/sim/config.py` |
 | Batch runs / report numbers | `src/mpc_core/sim/batch.py`, `scripts/rebuild_report_metrics.py` |
 | Course PDF | `report/main.tex`, `report/README.md` |
-| UI | `app.py`, `ui_pages/`, `sim/motor_view.py` |
+| UI | `app.py`, `ui_pages/`, `sim/theme.py` (tokens), `sim/ui.py` (CSS), `sim/diagrams.py`, `sim/motor_view.py` |

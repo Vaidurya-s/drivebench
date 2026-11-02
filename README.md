@@ -1,11 +1,8 @@
-# Industrial DC Motor Control Lab
+# DriveBench: PMDC Motor Control & Analysis Studio
+
 
 <p align="center">
-  <img src="assets/mpc-infographic.png" width="920" alt="Model Predictive Control infographic: optimiser, simulation model, and plant feedback loop">
-</p>
-
-<p align="center">
-  <strong>Offset-free MPC vs hand-tuned PID vs optimised PID regulating the speed of a permanent-magnet DC motor drive.</strong>
+  <strong>Hand-tuned PID, optimised PID, LQR (with integral action) and offset-free MPC regulating the speed of a permanent-magnet DC motor drive.</strong>
 </p>
 
 <p align="center">
@@ -14,13 +11,14 @@
   <a href="#proof-batch-metrics"><b>Proof</b></a> ·
   <a href="docs/EXPLAINER.md"><b>Explainer</b></a> ·
   <a href="docs/THEORY.md"><b>Theory</b></a> ·
+  <a href="docs/LQR.md"><b>LQR</b></a> ·
   <a href="HOW-IT-WORKS.md"><b>How it works</b></a> ·
   <a href="report/report.md"><b>Report</b></a>
 </p>
 
-A motor speed drive of the kind that turns conveyors, pumps and machine axes: the controller sets the armature voltage, a shared drive enforces voltage, slew and current limits, and a simulated permanent-magnet DC (PMDC) motor responds. Ten reproducible scenarios, a multipage Streamlit lab with precomputed data for fast opens, a 2D shaft replay, and batch results under `results/`.
+A motor speed drive of the kind that turns conveyors, pumps and machine axes: the controller sets the armature voltage, a shared drive enforces voltage, slew and current limits, and a simulated permanent-magnet DC (PMDC) motor responds. Ten reproducible scenarios, a six-page dark Streamlit workstation with precomputed data for fast opens, a 2D shaft replay, an LQR design studio, and batch results under `results/`.
 
-This repository began as an MPC heater lab. The plant, drive, scenarios, metrics and UI are now the motor; the controllers, comparison framework, scorecard, tests and deployment setup are the same architecture.
+This repository began as an MPC heater lab (see [`CREDITS.md`](CREDITS.md)). The plant, drive, scenarios, metrics and UI are now the motor, and an integral-augmented LQR is the fourth controller.
 
 ## Quick start
 
@@ -45,39 +43,43 @@ streamlit run app.py
   - **Python:** Advanced settings → **3.12** (matches `.python-version`). On 3.13/3.14,
     Cloud may build numpy/scipy/pandas from source and hang.
   - After a push, use **Reboot app** so the new entrypoint is picked up.
-- **Vercel static mirror (`web/`) and the showcase video (`video/`)** still show the retired heater lab and are **stale**; they were not ported. Regenerating them needs a redesign for the motor scenarios.
+- **Vercel static mirror (`web/`) and the showcase video (`video/`)** still show the retired heater lab and are **stale**: they were not ported to DriveBench, and `data/ui/` now uses a four-controller schema that the old mirror's JavaScript does not read. Do not deploy `web/` as it is; rebuild it against the new JSON or retire `web/` and `vercel.json`.
 
 ## Interactive app
 
-Theme: `.streamlit/config.toml` (cobalt accent `#2F6FEB`).
+Dark graphite theme (`.streamlit/config.toml`, tokens in `src/mpc_core/sim/theme.py`, notes in [`DESIGN.md`](DESIGN.md)). IBM Plex fonts load from Google Fonts with system fallbacks.
 
-- **Overview** — landing page and MPC loop diagram.
-- **Playground** — presets (speed step, load step, load removal, periodic load, noisy encoder, tight limits, plant mismatch, reverse) and sliders for reference, load, noise, mismatch, drive limits and controller knobs. Four synchronised panels (speed, armature current, voltage, torque) for all three controllers, a key-metrics table, and an animated **motor view** that replays the shaft with speed, direction, current, voltage, load and a limit indicator. A **Motor configuration** panel edits every motor parameter (with range validation and a restore-defaults button); custom motors simulate live.
-- **Step-through** — walk one MPC horizon at a time: predicted speed and armature current, planned voltage, load-torque estimate.
-- **Scorecard** — the same ten scenarios as the batch run, with a metric explorer.
+1. **System Overview**: motor specifications, drive architecture and four-controller diagrams, controller summaries.
+2. **Experiment Bench**: presets and a six-group configuration rail (reference, load, drive constraints, sensor, mismatch, controller settings), controller selection, a dominant speed chart with tabs for armature current, drive voltage, torque, power and energy, and requested-vs-applied voltage; controller readout tiles, a key-metrics table, a **Motor operating conditions** form with validation and restore-defaults, and the animated shaft view.
+3. **LQR Design Studio**: state-space and augmented equations, logarithmic weight sliders, gain K, Q/R, Riccati solution, closed-loop poles, controllability and stability checks, and a startup response preview. Invalid designs are rejected and not used.
+4. **MPC Prediction Explorer**: step through predicted speed, predicted armature current, the planned voltage sequence, and the active constraints at each sample.
+5. **Performance Review**: four-controller scorecard for each scenario (response, error integrals, current and voltage limits, energy, execution time).
+6. **Plant Model**: equations, transfer function, matrices, parameters, limits, assumptions and limitations.
 
 Screenshots: `python scripts/capture_streamlit_screenshots.py` with the app running (needs Playwright).
 
 ## Proof (batch metrics)
 
-Real output of `scripts/rebuild_report_metrics.py` (`report/metrics_summary.json`); the same numbers as the Scorecard page. Optimised PID uses the gains found once on `speed_tracking` (Kp 0.0326 V/RPM, Ki 0.131, Kd 0) and is **not** retuned per scenario. Every controller sees the same reference, load, bus and noise arrays and goes through the same drive.
+Real output of `scripts/rebuild_report_metrics.py` (`report/metrics_summary.json`); the same numbers as the Performance Review page. Optimised PID uses the gains found once on `speed_tracking` (Kp 0.0326 V/RPM, Ki 0.131, Kd 0) and is **not** retuned per scenario. Every controller sees the same reference, load, bus and noise arrays and goes through the same drive.
 
-| Scenario | Metric | MPC | PID | Optimised PID |
-| --- | --- | --- | --- | --- |
-| Motor startup (0→1000 RPM) | Settling [s] | **0.76** | 1.84 | 0.92 |
-| Speed tracking (4 steps) | IAE [RPM·s] | **1071** | 1854 | 1660 |
-| Load step (0.05→0.10 N·m) | IAE [RPM·s] | **3** | 35 | 8 |
-| Variable load | IAE [RPM·s] | **45** | 275 | 96 |
-| Sensor noise (15 RPM σ) | IAE [RPM·s] | **103** | 181 | 160 |
-| Reverse (±1000 RPM) | Settling [s] | **0.69** | 2.37 | 1.44 |
-| Voltage saturation (bus sag) | IAE [RPM·s] | **3307** | 4122 | 4092 |
-| Current protection | Time current-limited [s] | **4.34** | 9.18 | 9.71 |
-| Model mismatch (R +20 %, J +30 %, B +25 %) | IAE [RPM·s] | **1290** | 1794 | 1700 |
+| Scenario | Metric | PID | Optimised PID | LQR | MPC |
+| --- | --- | --- | --- | --- | --- |
+| Motor startup (0→1000 RPM) | Settling [s] | 1.84 | 0.92 | **0.71** | 0.76 |
+| Speed tracking (4 steps) | IAE [RPM·s] | 1854 | 1660 | 1608 | **1071** |
+| Load step (0.05→0.10 N·m) | IAE [RPM·s] | 35 | 8 | **1.2** | 3.2 |
+| Variable load | IAE [RPM·s] | 275 | 96 | **18** | 45 |
+| Sensor noise (15 RPM σ) | IAE [RPM·s] | 181 | 160 | 173 | **103** |
+| Reverse (±1000 RPM) | Settling [s] | 2.37 | 1.44 | 1.24 | **0.69** |
+| Voltage saturation (bus sag) | IAE [RPM·s] | 4122 | 4092 | 4072 | **3307** |
+| Current protection | Time current-limited [s] | 9.18 | 9.71 | 10.05 | **4.34** |
+| Model mismatch (R +20 %, J +30 %, B +25 %) | IAE [RPM·s] | 1794 | 1700 | 1676 | **1290** |
 
 Read these with the caveats in mind:
 
-- The MPC knows the nominal motor model and uses the measured armature current; the PID loops use speed only. That is the point of the comparison, not a like-for-like feedback structure.
-- The load-step and load-removal differences are mostly the MPC's disturbance estimator reacting within a sample or two. A PID with a larger integral gain would close part of the gap, at the price of noise sensitivity and overshoot (see the noise scenario).
+- The MPC and LQR know the nominal motor model and use the measured armature current; the PID loops use speed only. That is the point of the comparison, not a like-for-like feedback structure.
+- The LQR weights (`q_current=0.1, q_speed=300, q_integral=10000, r_voltage=1`) and the MPC settings were set by hand while looking at these scenarios, so neither is a neutral tuning contest.
+- LQR rejects load steps best of the four here (it feeds back current and has an integrator), but it spends the longest in the current limit because it does not plan around it; MPC plans along the limit and runs a numerical optimisation (about 3–6 ms per sample against about 0.01 ms for the others).
+- The load-step and load-removal differences are mostly the MPC's disturbance estimator reacting within a sample or two. A PID with a larger integral gain would close part of the gap to MPC, at the price of noise sensitivity and overshoot (see the noise scenario).
 - Where the drive's limits dominate (`voltage_saturation`, `current_protection`) the controllers are close, because the actuator, not the algorithm, sets the best achievable response.
 - The weights, horizon and observer gain are hand-set; no stability proof is claimed. Parameters are illustrative.
 - Under ±20 % winding-resistance error the drive's current limit can be exceeded transiently (peak 9.1 A against an 8 A limit in the low-resistance corner) before feedback backs the voltage off.
@@ -93,6 +95,7 @@ All metrics (rise time, steady-state error, ITAE, RMS current, energy, motor and
 ```text
  encoder (+noise) ──┐
  current sensor ────┼─► offset-free MPC (SciPy SLSQP, [i, ω] model + torque/voltage estimates)
+                    ├─► LQR with integral action (DARE gain, Ts = 10 ms)
                     │           │ V_cmd                 PID / optimised PID ◄─ speed
                     ▼           ▼                              │
               ┌──────────────── motor drive ◄──────────────────┘

@@ -1,4 +1,4 @@
-# How the MPC, the drive and the motor twin work
+# How DriveBench works: controllers, drive and motor twin
 
 British spelling. Numbers below come from the source or from the unit tests;
 nothing here invents a plant value. Equations and derivations are in
@@ -9,9 +9,10 @@ nothing here invents a plant value. Equations and derivations are in
 ```text
  encoder (+noise) ─┐                     ┌─ PID / optimised PID ─┐
  current sensor ───┼─► controller ──V_cmd┤                       ├─► motor drive ──V_a──► PMDC motor twin
+                   ├─► LQR (LQI) ────────┤
                    └─► offset-free MPC ──┘                       │   (V sat, slew,        (RK4, 1 ms)
                         (SciPy SLSQP)                            │    current protection)
-                                                                 └─ same drive, plant, inputs for all three
+                                                                 └─ same drive, plant, inputs for all four
 ```
 
 Four things, kept separate in code:
@@ -74,6 +75,12 @@ on the composite objective in `TuneWeights` (IAE, overshoot, settling, effort,
 voltage-saturation time, current-limit time). `playground.baseline_optimized_pid`
 tunes once on `speed_tracking` and freezes the result in `data/ui/optimized_pid.json`.
 
+## LQR (`sim/lqr.py`)
+
+Integral-augmented LQR on the nominal motor, discretised at the controller period,
+gain from `solve_discrete_are`, anti-windup against the applied voltage. Details and
+the design checks are in [docs/LQR.md](docs/LQR.md). `lqr_step` is a pure function like `pid_step`.
+
 ## Simulation (`sim/simulate.py`)
 
 `run_closed_loop(scenario, controller, cfg, options=...)` is the only closed-loop
@@ -81,20 +88,24 @@ path. It builds the reference, load, bus and noise arrays once (`build_inputs`),
 starts the plant in steady state at the scenario's initial speed and load, and
 loops: measure → controller → drive → RK4 sub-steps. `RunOptions` can override noise
 and plant scaling. Controllers always use `cfg.model`, the nominal motor.
-`run_mpc_step_log` records predictions for the Step-through page.
+`CONTROLLER_IDS = ("pid", "optimized_pid", "lqr", "mpc")`; every run fills the same
+`SimulationResult` (requested and applied voltage, torque, power, flags, per-sample execution time,
+controller config). `run_mpc_step_log` records predictions for the MPC Prediction Explorer.
 
-## Scenarios and playground
+## Scenarios and the bench
 
 `sim/scenarios.py` holds the ten named scenarios and profile builders
 (`piecewise`, `sinusoid`, `bounded_random`, `add`). `sim/playground.py` turns the
-Playground sliders (`PlaygroundParams`) into a scenario, defines the preset buttons
-and `run_triple` (MPC, PID, frozen optimised PID).
+Experiment Bench settings (`PlaygroundParams`, including the LQR weights) into a scenario, defines the
+preset buttons and `run_bench`, which returns a `ControllerRuns` mapping in controller order.
 
 ## UI
 
-`app.py` is a thin `st.navigation` entry point over `ui_pages/`. Pages read
-precomputed JSON from `data/ui/` (`sim/ui_cache.py`); a cache miss, such as custom
-motor parameters, simulates live. `sim/motor_view.py` builds the self-contained
+`app.py` is a thin `st.navigation` entry point over six pages in `ui_pages/`: overview, bench,
+LQR studio, MPC explorer, performance and plant model. Theme tokens are in `sim/theme.py`,
+CSS in `sim/ui.py`, SVG diagrams in `sim/diagrams.py`, shared state in `sim/ui_state.py`. Pages read
+precomputed JSON from `data/ui/` (`sim/ui_cache.py`, per-controller keys: changing the LQR
+weights only recomputes LQR); a cache miss, such as custom motor parameters, simulates live. `sim/motor_view.py` builds the self-contained
 2D shaft animation (HTML/SVG/JS); `sim/plotly_charts.py` the figures.
 `scripts/precompute_ui_data.py` regenerates all cached data and re-tunes and
 freezes the optimised PID.

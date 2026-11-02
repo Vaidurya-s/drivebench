@@ -1,4 +1,4 @@
-"""Build ad-hoc scenarios and run three-controller comparisons for the Streamlit UI."""
+"""Build ad-hoc scenarios and run four-controller comparisons for the Streamlit UI."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ from typing import Callable
 import numpy as np
 
 from mpc_core.sim.config import DemoConfig, default_demo_config
+from mpc_core.sim.lqr import LqrWeights
 from mpc_core.sim.pid import PIDGains
 from mpc_core.sim.pid_tune import TuneResult, tune_pid_gains
 from mpc_core.sim.scenarios import ScenarioConfig, add, constant, piecewise, sinusoid
-from mpc_core.sim.simulate import RunOptions, SimulationResult, run_closed_loop
+from mpc_core.sim.simulate import CONTROLLER_IDS, RunOptions, SimulationResult, run_closed_loop
 from mpc_core.twin.pmdc import PMDCParams
 
 
@@ -49,6 +50,19 @@ class PlaygroundParams:
     pid_kp: float = 0.01
     pid_ki: float = 0.03
     pid_kd: float = 0.0
+    lqr_q_current: float = LqrWeights.q_current
+    lqr_q_speed: float = LqrWeights.q_speed
+    lqr_q_integral: float = LqrWeights.q_integral
+    lqr_r_voltage: float = LqrWeights.r_voltage
+
+    @property
+    def lqr_weights(self) -> LqrWeights:
+        return LqrWeights(
+            q_current=self.lqr_q_current,
+            q_speed=self.lqr_q_speed,
+            q_integral=self.lqr_q_integral,
+            r_voltage=self.lqr_r_voltage,
+        )
 
 
 def build_playground_scenario(p: PlaygroundParams) -> ScenarioConfig:
@@ -88,11 +102,36 @@ def run_options_from_playground(p: PlaygroundParams) -> RunOptions:
 
 
 @dataclass(frozen=True)
-class TripleRun:
-    mpc: SimulationResult
-    pid: SimulationResult
-    optimized_pid: SimulationResult
+class ControllerRuns:
+    """Ordered controller-id -> result mapping for one scenario (PID, Opt. PID, LQR, MPC)."""
+
+    runs: dict[str, SimulationResult]
     tune: TuneResult
+
+    def __getitem__(self, key: str) -> SimulationResult:
+        return self.runs[key]
+
+    def __iter__(self):
+        return iter(self.runs)
+
+    def items(self):
+        return self.runs.items()
+
+    @property
+    def mpc(self) -> SimulationResult:
+        return self.runs["mpc"]
+
+    @property
+    def pid(self) -> SimulationResult:
+        return self.runs["pid"]
+
+    @property
+    def optimized_pid(self) -> SimulationResult:
+        return self.runs["optimized_pid"]
+
+    @property
+    def lqr(self) -> SimulationResult:
+        return self.runs["lqr"]
 
 
 # Gains tuned once on the mild speed-tracking scenario, then reused everywhere. That
@@ -159,7 +198,7 @@ def save_frozen_pid(result: TuneResult) -> None:
     )
 
 
-def run_triple(
+def run_bench(
     scenario: ScenarioConfig,
     *,
     cfg: DemoConfig | None = None,
@@ -167,10 +206,13 @@ def run_triple(
     horizon_steps: int | None = None,
     mpc_tracking_weight: float | None = None,
     plain_pid_gains: PIDGains | None = None,
+    lqr_weights: LqrWeights | None = None,
+    controllers: tuple[str, ...] = CONTROLLER_IDS,
     tune_maxiter: int = 35,
     freeze_optimized_pid: bool = True,
     optimized_gains: TuneResult | None = None,
-) -> TripleRun:
+) -> ControllerRuns:
+    """Run the selected controllers on identical inputs through the shared drive."""
     cfg = cfg or default_demo_config()
     opt = options or RunOptions()
     plain = plain_pid_gains or PIDGains(*scenario.pid_gains)
@@ -186,26 +228,29 @@ def run_triple(
             x0=(plain.kp, plain.ki, plain.kd),
             maxiter=tune_maxiter,
         )
-    mpc = run_closed_loop(
-        scenario,
-        "mpc",
-        cfg=cfg,
-        horizon_steps=horizon_steps,
-        options=opt,
-        mpc_tracking_weight=mpc_tracking_weight,
-    )
-    pid = run_closed_loop(
-        scenario, "pid", cfg=cfg, options=opt, pid_gains=plain, result_label="pid"
-    )
-    opt_pid = run_closed_loop(
-        scenario,
-        "pid",
-        cfg=cfg,
-        options=opt,
-        pid_gains=tune.gains,
-        result_label="optimized_pid",
-    )
-    return TripleRun(mpc=mpc, pid=pid, optimized_pid=opt_pid, tune=tune)
+    runs: dict[str, SimulationResult] = {}
+    for cid in CONTROLLER_IDS:
+        if cid not in controllers:
+            continue
+        if cid == "pid":
+            runs[cid] = run_closed_loop(
+                scenario, "pid", cfg=cfg, options=opt, pid_gains=plain, result_label="pid"
+            )
+        elif cid == "optimized_pid":
+            runs[cid] = run_closed_loop(
+                scenario, "pid", cfg=cfg, options=opt, pid_gains=tune.gains,
+                result_label="optimized_pid",
+            )
+        elif cid == "lqr":
+            runs[cid] = run_closed_loop(
+                scenario, "lqr", cfg=cfg, options=opt, lqr_weights=lqr_weights
+            )
+        else:
+            runs[cid] = run_closed_loop(
+                scenario, "mpc", cfg=cfg, options=opt, horizon_steps=horizon_steps,
+                mpc_tracking_weight=mpc_tracking_weight,
+            )
+    return ControllerRuns(runs=runs, tune=tune)
 
 
 PRESETS: dict[str, Callable[[PlaygroundParams], PlaygroundParams]] = {

@@ -15,22 +15,19 @@ DOCS = ROOT / "docs"
 BASE = "http://127.0.0.1:8501"
 
 PAGE_SHOTS = [
-    ("", DOCS / "streamlit-overview.png", "Industrial DC Motor Control Lab"),
-    ("playground", DOCS / "streamlit-playground.png", "Playground"),
-    ("step_through", DOCS / "streamlit-step-through.png", "Step-through"),
-    ("scorecard", DOCS / "streamlit-scorecard.png", "Scorecard"),
+    ("", DOCS / "drivebench-overview.png", "System overview"),
+    ("bench", DOCS / "drivebench-bench.png", "Experiment Bench"),
+    ("lqr_studio", DOCS / "drivebench-lqr-studio.png", "LQR Design Studio"),
+    ("mpc_explorer", DOCS / "drivebench-mpc-explorer.png", "MPC Prediction Explorer"),
+    ("performance", DOCS / "drivebench-performance.png", "Performance Review"),
+    ("plant_model", DOCS / "drivebench-plant-model.png", "Plant Model"),
 ]
 
-# Click each preset button; wait for the Active caption to show the case.
+# Click each bench preset; wait for the scenario name in the status bar.
 PLAYGROUND_PRESET_SHOTS = [
-    ("Speed step", DOCS / "streamlit-playground-speed-step.png", "1000→2000 RPM"),
-    ("Load step", DOCS / "streamlit-playground-load-step.png", "→ 0.100"),
-    ("Load removal", DOCS / "streamlit-playground-load-removal.png", "→ 0.050"),
-    ("Periodic load", DOCS / "streamlit-playground-periodic-load.png", "sin(0.5 Hz)"),
-    ("Noisy encoder", DOCS / "streamlit-playground-noisy-encoder.png", "encoder σ=15"),
-    ("Tight limits", DOCS / "streamlit-playground-tight-limits.png", "14 V / 4.0 A"),
-    ("Mismatch", DOCS / "streamlit-playground-mismatch.png", "mismatch on"),
-    ("Reverse", DOCS / "streamlit-playground-reverse.png", "1000→-1000 RPM"),
+    ("Speed step", DOCS / "drivebench-bench-speed-step.png", "setpoint step"),
+    ("Load step", DOCS / "drivebench-bench-load-step.png", "load step"),
+    ("Reverse", DOCS / "drivebench-bench-reverse.png", "reverse"),
 ]
 
 
@@ -55,11 +52,11 @@ def main() -> None:
             print(f"Wrote {out.name}")
             context.close()
 
-        # Preset shots: one playground session, click through presets.
+        # Preset shots: one bench session, click through presets.
         context = browser.new_context(viewport={"width": 1440, "height": 1200})
         page = context.new_page()
-        page.goto(f"{BASE}/playground", wait_until="domcontentloaded", timeout=120_000)
-        _wait_text(page, "Playground")
+        page.goto(f"{BASE}/bench", wait_until="domcontentloaded", timeout=120_000)
+        _wait_text(page, "Experiment Bench")
         page.wait_for_timeout(2500)
 
         for label, out, marker in PLAYGROUND_PRESET_SHOTS:

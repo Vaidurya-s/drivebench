@@ -53,11 +53,12 @@ def architecture() -> None:
         ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=8)
 
     box(0.2, 2.3, 2.3, 1.2, "Speed + current\nsensors\n(encoder noise)", "#F3F4F6")
-    box(3.0, 2.3, 2.9, 1.2, "Offset-free MPC\n[i, w] model + torque est.\nSLSQP, V / dV / I limits", "#DBEAFE")
+    box(3.0, 2.3, 2.9, 1.2, "Offset-free MPC\n[i, w] model + torque est.\nSLSQP, V / dV / I limits", "#EDE9FE")
     box(6.4, 2.3, 2.7, 1.2, "Motor drive\nV sat, slew limit,\ncurrent protection", "#D1FAE5")
     box(9.6, 2.3, 3.0, 1.2, "PMDC motor twin\nL di/dt, J dw/dt, RK4\n1 ms step", "#FFEDD5")
-    box(3.0, 0.4, 2.9, 1.1, "Hand-tuned PID\n(filtered D, anti-windup)", "#E5E7EB")
-    box(6.4, 0.4, 2.7, 1.1, "Optimised PID\ncomposite objective\nSciPy L-BFGS-B", "#CCFBF1")
+    box(0.2, 0.4, 2.6, 1.1, "Hand-tuned PID\n(filtered D, anti-windup)", "#DBEAFE")
+    box(3.0, 0.4, 2.9, 1.1, "Optimised PID\ncomposite objective\nSciPy L-BFGS-B", "#CCFBF1")
+    box(6.4, 0.4, 2.7, 1.1, "LQR with integral\naction (LQI), DARE gain\nTs = 10 ms", "#FEF3C7")
 
     for (x0, y0, x1, y1) in [
         (2.5, 2.9, 3.0, 2.9),
@@ -66,6 +67,7 @@ def architecture() -> None:
         (11.1, 2.3, 11.1, 1.6),
         (11.1, 1.6, 1.35, 1.6),
         (1.35, 1.6, 1.35, 2.3),
+        (1.5, 1.5, 3.0, 2.5),
         (4.45, 1.5, 4.45, 2.3),
         (7.75, 1.5, 7.75, 2.3),
     ]:
@@ -80,9 +82,9 @@ def architecture() -> None:
 
 def _grouped(ax, labels, series, colors, ylabel, title) -> None:
     x = np.arange(len(labels))
-    w = 0.27
+    w = 0.2
     for k, (name, vals) in enumerate(series):
-        ax.bar(x + (k - 1) * w, vals, w, label=name, color=colors[k])
+        ax.bar(x + (k - 1.5) * w, vals, w, label=name, color=colors[k])
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=30, ha="right")
     ax.set_ylabel(ylabel)
@@ -94,9 +96,9 @@ def _grouped(ax, labels, series, colors, ylabel, title) -> None:
 
 def _series(data: dict, metric: str, keys: list[str]):
     out = []
-    for ctl in ("mpc", "pid", "optimized_pid"):
+    for ctl in ("pid", "optimized_pid", "lqr", "mpc"):
         out.append([data["scenarios"][k][ctl][metric] or 0.0 for k in keys])
-    return list(zip(("MPC", "PID", "Opt. PID"), out))
+    return list(zip(("PID", "Opt. PID", "LQR", "MPC"), out))
 
 
 def iae_bars(data: dict) -> None:
@@ -104,7 +106,7 @@ def iae_bars(data: dict) -> None:
     fig, ax = plt.subplots(figsize=(9.5, 4.2))
     _grouped(
         ax, [SHORT[k] for k in keys], _series(data, "iae", keys),
-        ["#2563EB", "#6B7280", "#0D9488"], "IAE [RPM s]",
+        ["#6B7280", "#0D9488", "#D97706", "#2563EB"], "IAE [RPM s]",
         "Integrated absolute speed error by scenario",
     )
     fig.tight_layout()
@@ -118,7 +120,7 @@ def current_limit_bars(data: dict) -> None:
     fig, ax = plt.subplots(figsize=(7.5, 3.8))
     _grouped(
         ax, [SHORT[k] for k in keys], _series(data, "current_limit_s", keys),
-        ["#2563EB", "#6B7280", "#0D9488"], "Current protection active [s]",
+        ["#6B7280", "#0D9488", "#D97706", "#2563EB"], "Current protection active [s]",
         "Time the drive's current protection was limiting",
     )
     fig.tight_layout()
@@ -162,7 +164,7 @@ TABLE_COLS = [
 
 def tables(data: dict) -> None:
     """Write generated results tables for report.md and main.tex (never hand-edit)."""
-    ctl = (("mpc", "MPC"), ("pid", "PID"), ("optimized_pid", "Opt. PID"))
+    ctl = (("pid", "PID"), ("optimized_pid", "Opt. PID"), ("lqr", "LQR"), ("mpc", "MPC"))
     md = [
         "| Scenario | Controller | " + " | ".join(c[0] for c in TABLE_COLS) + " |",
         "| --- | --- | " + " | ".join("---:" for _ in TABLE_COLS) + " |",
@@ -189,7 +191,7 @@ def tables(data: dict) -> None:
                 ):
                     cell = rf"\mpcbest{{{cell}}}" if ck == "mpc" else rf"\textbf{{{cell}}}"
                 cells.append(cell)
-            first = rf"\multirow{{3}}{{*}}{{{sc['title']}}}" if ci == 0 else ""
+            first = rf"\multirow{{4}}{{*}}{{{sc['title']}}}" if ci == 0 else ""
             rows.append(f"{first} & {cl} & " + " & ".join(cells) + r" \\")
         blocks.append("\n".join(rows))
     (REPORT / "results_tables.md").write_text("\n".join(md) + "\n", encoding="utf-8")

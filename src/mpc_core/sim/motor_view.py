@@ -50,11 +50,11 @@ def motor_animation_html(run: SimulationResult, *, title: str, height: int = 360
 _TEMPLATE = r"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root { --b:#E4E4E2; --s:#FFFFFF; --sub:#F5F5F4; --t:#202020; --t2:#5F5F5C; --m:#8A8A86;
-          --a:#2F6FEB; --c:#E07A3F; --ok:#2F9E6A; --bad:#D0312D; }
+  :root { --b:#304656; --s:#172633; --sub:#263A49; --t:#EAF1F5; --t2:#B3C2CB; --m:#8FA2B0;
+          --a:#36C4D8; --c:#F0B35A; --ok:#55C68E; --bad:#F06C72; }
   * { box-sizing: border-box; }
-  body { margin:0; font: 14px/1.4 Inter, system-ui, sans-serif; color: var(--t); background: transparent; }
-  .wrap { border:1px solid var(--b); border-radius:12px; background: var(--s); padding:12px 16px; }
+  body { margin:0; font: 14px/1.4 'IBM Plex Sans', system-ui, sans-serif; color: var(--t); background: transparent; }
+  .wrap { border:1px solid var(--b); border-radius:3px; background: var(--s); padding:12px 16px; }
   .top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
   .ttl { font-weight:600; }
   .note { color: var(--m); font-size:12px; }
@@ -62,13 +62,13 @@ _TEMPLATE = r"""<!doctype html>
   svg { width: 100%; max-width: 360px; height: auto; flex: 1 1 260px; }
   .stats { flex: 1 1 200px; display:grid; grid-template-columns: 1fr 1fr; gap:8px 16px; }
   .stat .k { color: var(--t2); font-size:12px; }
-  .stat .v { font-size:20px; font-weight:600; font-variant-numeric: tabular-nums; }
-  .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600;
+  .stat .v { font-size:20px; font-weight:600; font-variant-numeric: tabular-nums; font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:3px; font-size:12px; font-weight:600;
            background: var(--sub); border:1px solid var(--b); }
   .ctl { display:flex; gap:10px; align-items:center; margin-top:8px; flex-wrap:wrap; }
-  button, select { font: inherit; padding:4px 12px; border-radius:8px; border:1px solid var(--b);
+  button, select { font: inherit; padding:4px 12px; border-radius:3px; border:1px solid var(--b);
                    background: var(--sub); color: var(--t); cursor:pointer; }
-  button.primary { background: var(--a); border-color: var(--a); color:#fff; }
+  button.primary { background: var(--a); border-color: var(--a); color:#0D1722; }
   input[type=range] { flex: 1 1 160px; accent-color: var(--a); }
   .bar { height:8px; background: var(--sub); border-radius:4px; overflow:hidden; border:1px solid var(--b); }
   .bar > i { display:block; height:100%; width:0; background: var(--a); }
@@ -81,8 +81,8 @@ _TEMPLATE = r"""<!doctype html>
       <circle cx="150" cy="150" r="128" fill="var(--sub)" stroke="var(--b)" stroke-width="2"/>
       <path d="M150 22 A128 128 0 0 1 278 150 L240 150 A90 90 0 0 0 150 60 Z" fill="var(--c)" opacity=".85"/>
       <path d="M150 278 A128 128 0 0 1 22 150 L60 150 A90 90 0 0 0 150 240 Z" fill="var(--a)" opacity=".85"/>
-      <text x="236" y="70" fill="#fff" font-size="16" font-weight="700">N</text>
-      <text x="52" y="244" fill="#fff" font-size="16" font-weight="700">S</text>
+      <text x="236" y="70" fill="#0D1722" font-size="16" font-weight="700">N</text>
+      <text x="52" y="244" fill="#0D1722" font-size="16" font-weight="700">S</text>
       <g id="rotor">
         <circle cx="150" cy="150" r="76" fill="var(--s)" stroke="var(--t2)" stroke-width="2"/>
         <line x1="150" y1="150" x2="150" y2="84" stroke="var(--t)" stroke-width="6" stroke-linecap="round"/>

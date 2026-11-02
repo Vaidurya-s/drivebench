@@ -19,8 +19,8 @@ from pathlib import Path
 from mpc_core.sim.batch import BatchItem, run_batch, summary_dict
 from mpc_core.sim.config import default_demo_config
 from mpc_core.sim.pid_tune import tune_pid_gains
-from mpc_core.sim.playground import TripleRun
-from mpc_core.sim.plotting import save_triple_figure
+from mpc_core.sim.playground import ControllerRuns
+from mpc_core.sim.plotting import save_runs_figure
 from mpc_core.sim.scenarios import MISMATCH_CASES, SCENARIOS
 from mpc_core.sim.simulate import RunOptions, run_closed_loop
 
@@ -36,15 +36,14 @@ def main() -> None:
     cfg = default_demo_config()
     t_start = time.perf_counter()
 
-    def figures(item: BatchItem, t: TripleRun) -> None:
+    def figures(item: BatchItem, t: ControllerRuns) -> None:
         for folder in (FIG, RESULTS):
-            save_triple_figure(
-                title=item.title, mpc=t.mpc, pid=t.pid, optimized_pid=t.optimized_pid,
-                path=folder / f"{item.key}.png",
+            save_runs_figure(
+                title=item.title, runs=t.runs, path=folder / f"{item.key}.png",
             )
         print(
-            f"{item.key}: IAE mpc/pid/opt = {t.mpc.metrics.iae:.0f}/"
-            f"{t.pid.metrics.iae:.0f}/{t.optimized_pid.metrics.iae:.0f}",
+            f"{item.key}: IAE pid/opt/lqr/mpc = "
+            + "/".join(f"{t[c].metrics.iae:.0f}" for c in t),
             flush=True,
         )
 

@@ -1,4 +1,4 @@
-"""All three controllers must face the same plant, drive and exogenous inputs."""
+"""All four controllers must face the same plant, drive and exogenous inputs."""
 
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ def test_same_inputs_for_every_controller(key: str) -> None:
     a = run_closed_loop(sc, "mpc", cfg=cfg)
     b = run_closed_loop(sc, "pid", cfg=cfg)
     c = run_closed_loop(sc, "pid", cfg=cfg, pid_gains=PIDGains(0.03, 0.2, 0.0))
-    for other in (b, c):
+    d = run_closed_loop(sc, "lqr", cfg=cfg)
+    for other in (b, c, d):
         assert np.array_equal(a.ref_rpm, other.ref_rpm)
         assert np.array_equal(a.load_nm, other.load_nm)
         assert a.i_max == other.i_max and a.v_max == other.v_max
@@ -30,9 +31,10 @@ def test_same_inputs_for_every_controller(key: str) -> None:
 
 def test_identical_initial_conditions() -> None:
     sc = SCENARIOS["load_step"]
-    runs = [run_closed_loop(sc, k) for k in ("mpc", "pid")]
+    runs = [run_closed_loop(sc, k) for k in ("mpc", "pid", "lqr")]
     assert runs[0].speed_rpm[0] == pytest.approx(runs[1].speed_rpm[0])
     assert runs[0].i_a[0] == pytest.approx(runs[1].i_a[0])
+    assert runs[2].speed_rpm[0] == pytest.approx(runs[0].speed_rpm[0])
 
 
 def test_noise_is_reproducible_and_seed_dependent() -> None:
