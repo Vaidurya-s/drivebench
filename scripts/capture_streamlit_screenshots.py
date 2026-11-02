@@ -38,7 +38,7 @@ def _wait_text(page: Page, text: str, timeout: float = 90_000) -> None:
 def main() -> None:
     DOCS.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, channel="chrome")
 
         # Page-level shots: fresh context each time.
         for path, out, wait_text in PAGE_SHOTS:
@@ -47,7 +47,7 @@ def main() -> None:
             url = f"{BASE}/{path}" if path else BASE
             page.goto(url, wait_until="domcontentloaded", timeout=120_000)
             _wait_text(page, wait_text)
-            page.wait_for_timeout(3500)
+            page.wait_for_timeout(12000)
             page.screenshot(path=str(out), full_page=True)
             print(f"Wrote {out.name}")
             context.close()
@@ -62,7 +62,7 @@ def main() -> None:
         for label, out, marker in PLAYGROUND_PRESET_SHOTS:
             page.get_by_role("button", name=label, exact=True).first.click()
             _wait_text(page, marker)
-            page.wait_for_timeout(3500)
+            page.wait_for_timeout(12000)
             page.screenshot(path=str(out), full_page=True)
             print(f"Wrote {out.name} ({label})")
 

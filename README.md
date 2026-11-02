@@ -57,11 +57,15 @@ Dark graphite theme (`.streamlit/config.toml`, tokens in `src/mpc_core/sim/theme
 5. **Performance Review**: four-controller scorecard for each scenario (response, error integrals, current and voltage limits, energy, execution time).
 6. **Plant Model**: equations, transfer function, matrices, parameters, limits, assumptions and limitations.
 
-| System Overview | Experiment Bench | LQR Design Studio |
+| System Overview | Experiment Bench (load step) | LQR Design Studio |
 | :---: | :---: | :---: |
-| <img src="docs/drivebench-overview.jpg" width="300" alt="System overview"> | <img src="docs/drivebench-bench.jpg" width="300" alt="Experiment bench, load step"> | <img src="docs/drivebench-lqr-studio.jpg" width="300" alt="LQR design studio response preview"> |
+| <img src="docs/drivebench-overview.png" width="300" alt="System overview"> | <img src="docs/drivebench-bench-load-step.png" width="300" alt="Experiment bench, load step"> | <img src="docs/drivebench-lqr-studio.png" width="300" alt="LQR design studio"> |
 
-These were captured from the running app in Chrome. To regenerate all six pages plus presets: `python scripts/capture_streamlit_screenshots.py` with the app running (needs Playwright).
+| MPC Prediction Explorer | Performance Review | Plant Model |
+| :---: | :---: | :---: |
+| <img src="docs/drivebench-mpc-explorer.png" width="300" alt="MPC prediction explorer"> | <img src="docs/drivebench-performance.png" width="300" alt="Performance review"> | <img src="docs/drivebench-plant-model.png" width="300" alt="Plant model"> |
+
+Bench presets: [speed step](docs/drivebench-bench-speed-step.png), [reverse](docs/drivebench-bench-reverse.png). Regenerate all with `python scripts/capture_streamlit_screenshots.py` while the app runs on port 8501 (needs `pip install playwright` and an installed Chrome).
 
 ## Proof (batch metrics)
 
