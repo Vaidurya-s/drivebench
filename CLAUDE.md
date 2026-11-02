@@ -24,7 +24,7 @@ python3 scripts/rebuild_report_charts.py    # report bar charts / architecture f
 streamlit run app.py
 ```
 
-`scripts/rebuild_academic_report.sh` rebuilds metrics, charts and the LaTeX PDF. `scripts/sync_web_data.py` and the `video/` exporters belong to the retired heater showcase (stale).
+`scripts/rebuild_academic_report.sh` rebuilds metrics, charts and the LaTeX PDF. `scripts/sync_web_data.py` rebuilds the static Vercel mirror data in `web/` (run it after `precompute_ui_data.py`); the `video/` exporters belong to the retired heater showcase (stale).
 
 ## Architecture
 

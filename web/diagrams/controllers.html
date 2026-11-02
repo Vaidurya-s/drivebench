@@ -1,0 +1,17 @@
+<svg viewBox="0 0 700 330" width="100%" role="img" aria-label="Four controllers feed one common drive and plant with shared feedback" xmlns="http://www.w3.org/2000/svg" style="max-width:700px;background:#172633;border:1px solid #304656;border-radius:3px">
+<style>
+ .t { font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; fill: #EAF1F5; font-size: 13px; }
+ .s { font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; fill: #B3C2CB; font-size: 11px; }
+ .m { font-family: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace; fill: #B3C2CB; font-size: 11px; }
+ .box { fill: #172633; stroke: #304656; stroke-width: 1.4; }
+ .hot { fill: #263A49; stroke: #36C4D8; stroke-width: 1.6; }
+ .wire { stroke: #B3C2CB; stroke-width: 1.6; fill: none; }
+ .fb { stroke: #36C4D8; stroke-width: 1.6; fill: none; stroke-dasharray: 6 4; }
+</style>
+<defs>
+ <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+  <path d="M0,0 L10,5 L0,10 z" fill="#B3C2CB"/></marker>
+ <marker id="af" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+  <path d="M0,0 L10,5 L0,10 z" fill="#36C4D8"/></marker>
+</defs>
+<text class="s" x="20" y="24">Four controllers, one drive, one plant</text><rect class="box" x="30" y="40" width="170" height="48" rx="3" style="stroke:#78A8D5"/><text class="t" x="115" y="69" text-anchor="middle" style="fill:#78A8D5">PID</text><path class="wire" d="M200,64 L270,64 L270,146 L300,146" marker-end="url(#ar)"/><rect class="box" x="30" y="102" width="170" height="48" rx="3" style="stroke:#43C5A2"/><text class="t" x="115" y="131" text-anchor="middle" style="fill:#43C5A2">Optimised PID</text><path class="wire" d="M200,126 L270,126 L270,146 L300,146" marker-end="url(#ar)"/><rect class="box" x="30" y="164" width="170" height="48" rx="3" style="stroke:#F0B35A"/><text class="t" x="115" y="193" text-anchor="middle" style="fill:#F0B35A">LQR (LQI)</text><path class="wire" d="M200,188 L270,188 L270,146 L300,146" marker-end="url(#ar)"/><rect class="box" x="30" y="226" width="170" height="48" rx="3" style="stroke:#B49AF7"/><text class="t" x="115" y="255" text-anchor="middle" style="fill:#B49AF7">MPC</text><path class="wire" d="M200,250 L270,250 L270,146 L300,146" marker-end="url(#ar)"/><rect class="hot" x="300" y="110" width="150" height="72" rx="3"/><text class="t" x="375.0" y="142.0" text-anchor="middle">Common drive</text><text class="m" x="375.0" y="158.0" text-anchor="middle">same limits for all</text><rect class="box" x="500" y="110" width="150" height="72" rx="3"/><text class="t" x="575.0" y="142.0" text-anchor="middle">PMDC motor</text><text class="m" x="575.0" y="158.0" text-anchor="middle">one plant model</text><line class="wire" x1="450" y1="146" x2="500" y2="146" marker-end="url(#ar)"/><path class="fb" d="M575,182 L575,296 L115,296" marker-end="url(#af)"/><text class="s" x="345" y="314" text-anchor="middle">i_a, ω (same measurements to every controller)</text><text class="m" x="352" y="104">selected one at a time per run</text></svg>

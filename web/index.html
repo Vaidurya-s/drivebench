@@ -3,31 +3,45 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MPC Heater Lab</title>
+    <title>DriveBench · PMDC Motor Control &amp; Analysis Studio</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
     <link rel="stylesheet" href="css/lab.css" />
   </head>
   <body>
     <div class="shell" id="shell"></div>
     <script type="module">
-      import { mountNav } from "./js/nav.js";
-      document.getElementById("shell").innerHTML = `
-        ${mountNav("overview")}
-        <main class="main">
-          <h1>MPC Heater Lab</h1>
-          <p class="lede">Compare MPC and PID on the same heater model.</p>
-          <img class="infographic" src="assets/mpc-infographic.png" alt="Model Predictive Control infographic" />
-          <p class="lede" style="margin-top:20px">
-            MPC runs a model forward over a horizon, picks a power plan that stays inside
-            the limits, applies the first move, then re-plans from the measured temperature.
-            PID only reacts to the error it sees now.
-          </p>
-          <div class="paths">
-            <div class="path-item"><strong>Playground</strong><span>Set conditions and compare MPC with PID.</span></div>
-            <div class="path-item"><strong>Step-through</strong><span>Watch MPC plan one horizon at a time.</span></div>
-            <div class="path-item"><strong>Scorecard</strong><span>Compare settling, limit hits, and power use.</span></div>
-          </div>
-        </main>
-      `;
+      import { shell, status } from "./js/nav.js";
+      import { COLORS, LABELS, IDS } from "./js/theme.js";
+      const notes = {
+        pid: "Hand-tuned PID: fixed gains, speed feedback only.",
+        optimized_pid: "PID gains tuned once by optimisation, then frozen.",
+        lqr: "LQR with integral action (LQI): the integral state gives zero steady-state speed error.",
+        mpc: "Model predictive control: plans voltage over a horizon within voltage and current limits.",
+      };
+      shell("overview", `
+        <p class="eyebrow">DriveBench</p>
+        <h1>System overview</h1>
+        <p class="lede">A permanent-magnet DC (PMDC) motor holds shaft speed against a changing load. Four controllers
+        (PID, optimised PID, LQR and MPC) drive the same simulated motor through the same voltage drive, so differences in
+        the results come from the control law alone.</p>
+        ${status("overview")}
+        <div class="grid">
+          <div class="panel"><h3>Supply limit</h3><p class="mono">24 V</p></div>
+          <div class="panel"><h3>Current limit</h3><p class="mono">8 A</p></div>
+          <div class="panel"><h3>Top speed</h3><p class="mono">3000 RPM</p></div>
+          <div class="panel"><h3>Nominal load</h3><p class="mono">0.05 N·m</p></div>
+          <div class="panel"><h3>Electrical τ</h3><p class="mono">10 ms</p></div>
+          <div class="panel"><h3>Controller period</h3><p class="mono">10 ms</p></div>
+        </div>
+        <h2>Motor drive</h2><div id="d1"></div>
+        <h2>Control loop</h2><div id="d2"></div>
+        <h2>The four controllers</h2>
+        <div class="grid">${IDS.map((c) => `<div class="panel" style="border-left:3px solid ${COLORS[c]}"><h3 style="color:${COLORS[c]}">${LABELS[c]}</h3><p>${notes[c]}</p></div>`).join("")}</div>
+        <div class="panel"><h3>Fairness</h3><p>All four controllers share the same motor, initial state, speed reference, load torque, sensor noise, drive limits and 10 ms period. LQR and MPC use the measured armature current; the PID loops use speed only. The LQR weights and MPC settings were set by hand while looking at these scenarios.</p></div>
+        <p style="margin-top:16px"><a style="color:var(--accent)" href="bench.html">Open the Experiment Bench →</a></p>
+      `);
+      for (const [id, f] of [["d1", "drive"], ["d2", "controllers"]])
+        fetch(`diagrams/${f}.html`).then((r) => r.text()).then((t) => (document.getElementById(id).innerHTML = t));
     </script>
   </body>
 </html>

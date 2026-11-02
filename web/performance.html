@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Performance Review · DriveBench</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="css/lab.css" />
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  </head>
+  <body>
+    <div class="shell" id="shell"></div>
+    <script type="module">
+      import { shell, status, getJSON } from "./js/nav.js";
+      import { barChart } from "./js/charts.js";
+      import { IDS, LABELS, COLORS } from "./js/theme.js";
+      const rows = (await getJSON("data/scorecard.json")).rows;
+      const idOf = { PID: "pid", "Optimized PID": "optimized_pid", LQR: "lqr", MPC: "mpc" };
+      const scenarios = [...new Set(rows.map((r) => r.Scenario))];
+      const CH = [["Rise [s]", "Rise time", "s"], ["Settling [s]", "Settling time", "s"], ["Overshoot [%]", "Overshoot", "%"],
+        ["IAE [RPM·s]", "IAE", "RPM·s"], ["ISE [RPM²·s]", "ISE", "RPM²·s"], ["ITAE [RPM·s²]", "ITAE", "RPM·s²"],
+        ["Max current [A]", "Peak current", "A"], ["Current limit [s]", "Time current-limited", "s"],
+        ["Voltage saturation [s]", "Time voltage-saturated", "s"], ["Energy [J]", "Electrical energy", "J"],
+        ["Mechanical energy [J]", "Mechanical energy", "J"], ["Mean exec [ms]", "Mean execution time", "ms"]];
+      shell("performance", `
+        <p class="eyebrow">Page 5</p><h1>Performance Review</h1>
+        <p class="lede">Same motor, same drive, same inputs for every controller. Optimised PID keeps the gains from the speed-tracking scenario. A missing settling time means the speed never stayed inside the 2 % band (drawn as 0).</p>
+        <div id="st"></div>
+        <label>Scenario <select id="sc">${scenarios.map((s) => `<option>${s}</option>`).join("")}</select></label>
+        <div class="grid" id="charts" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr))"></div>
+        <h2>All metrics for this scenario</h2><div id="table"></div>
+      `);
+      const f = (v) => (v == null ? "—" : Number(v).toPrecision(3));
+      function draw(s) {
+        document.getElementById("st").innerHTML = status(s);
+        const sub = Object.fromEntries(rows.filter((r) => r.Scenario === s).map((r) => [idOf[r.Controller], r]));
+        const box = document.getElementById("charts");
+        box.innerHTML = CH.map((_, k) => `<div class="chart" id="c${k}"></div>`).join("");
+        CH.forEach(([col, title, unit], k) => {
+          const vals = {};
+          IDS.forEach((c) => (vals[c] = sub[c][col] ?? 0));
+          barChart(document.getElementById(`c${k}`), title, unit, vals);
+        });
+        const cols = Object.keys(sub.pid).filter((c) => c !== "Scenario" && c !== "Controller");
+        document.getElementById("table").innerHTML = `<table><tr><th>Metric</th>${IDS.map((c) => `<th style="color:${COLORS[c]}">${LABELS[c]}</th>`).join("")}</tr>${cols.map((col) => `<tr><td>${col}</td>${IDS.map((c) => `<td class="num">${f(sub[c][col])}</td>`).join("")}</tr>`).join("")}</table>`;
+      }
+      document.getElementById("sc").onchange = (e) => draw(e.target.value);
+      draw(scenarios[0]);
+    </script>
+  </body>
+</html>

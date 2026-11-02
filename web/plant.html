@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Plant Model · DriveBench</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="css/lab.css" />
+  </head>
+  <body>
+    <div class="shell" id="shell"></div>
+    <script type="module">
+      import { shell, status, getJSON } from "./js/nav.js";
+      const d = await getJSON("data/plant.json");
+      const p = d.params;
+      const mat = (M) => M.map((r) => r.map((x) => Number(x).toFixed(3).padStart(10)).join("")).join("\n");
+      const rows = [["Armature resistance R_a", p.R_a, "Ω"], ["Armature inductance L_a", p.L_a, "H"], ["Torque constant K_t", p.K_t, "N·m/A"],
+        ["Back-EMF constant K_e", p.K_e, "V·s/rad"], ["Inertia J", p.J, "kg·m²"], ["Viscous friction B", p.B, "N·m·s/rad"],
+        ["Nominal load torque T_L", p.T_L, "N·m"], ["Maximum drive voltage V_max", p.V_max, "V"], ["Maximum armature current I_max", p.I_max, "A"],
+        ["Maximum speed", p.omega_max_rpm, "RPM"], ["Voltage slew limit", d.slew_v_per_s, "V/s"]];
+      shell("plant", `
+        <p class="eyebrow">Page 6</p><h1>Plant Model</h1>
+        <p class="lede">The simulated motor: equations, matrices, parameters, limits and what the model leaves out.</p>
+        ${status("reference model")}
+        <h2>Equations</h2>
+        <pre>L_a di_a/dt = V_a − R_a i_a − K_e ω
+J dω/dt   = K_t i_a − B ω − T_L          dθ/dt = ω
+Ω(s)/V_a(s) = K_t / (L_a J s² + (L_a B + R_a J) s + (R_a B + K_e K_t))</pre>
+        <h2>State space  x = [i_a, ω, θ]</h2>
+        <pre>A =\n${mat(d.A)}\n\nB = [${d.B.join(", ")}]ᵀ     E (load torque) = [${d.E.join(", ")}]ᵀ</pre>
+        <h2>Transfer function</h2>
+        <pre>num = [${d.num.join(", ")}]
+den = [${d.den.map((x) => Number(x).toPrecision(6)).join(", ")}]
+poles = ${d.poles.map((x) => Number(x).toFixed(2)).join(", ")} 1/s      electrical τ = ${d.tau_e_ms.toFixed(1)} ms</pre>
+        <h2>Parameters and limits</h2>
+        <table><tr><th>Parameter</th><th>Value</th><th>Unit</th></tr>${rows.map(([k, v, u]) => `<tr><td>${k}</td><td class="num">${v}</td><td>${u}</td></tr>`).join("")}</table>
+        <h2>Plant, prediction model, drive and measurement</h2>
+        <div class="grid">
+          <div class="panel"><h3>Actual plant</h3><p>Three-state motor integrated with RK4 at 1 ms. Under model mismatch its R, L, J and B differ from the nominal values.</p></div>
+          <div class="panel"><h3>Controller models</h3><p>MPC predicts with a 2-state [i, ω] zero-order-hold model of the nominal motor. LQR designs on the same nominal pair.</p></div>
+          <div class="panel"><h3>Drive</h3><p>Enable and e-stop, slew limit, ±V_max × bus, then a current window. Acts on every controller.</p></div>
+          <div class="panel"><h3>Measurement</h3><p>Speed from an encoder with Gaussian noise; armature current measured ideally. Sampled every 10 ms.</p></div>
+        </div>
+        <h2>Assumptions and limitations</h2>
+        <ul>
+          <li>Linear motor with constant parameters: no brush drop, magnetic saturation, temperature drift, Coulomb friction or cogging.</li>
+          <li>Ideal current sensor; the speed encoder has Gaussian noise only.</li>
+          <li>The drive is a voltage source with a slew limit and an ideal current window, not a switching converter model.</li>
+          <li>Load torque keeps its sign at standstill. Efficiency figures use an illustrative 0.95 power-stage efficiency.</li>
+          <li>No stability proof is claimed for any controller under saturation.</li>
+        </ul>
+      `);
+    </script>
+  </body>
+</html>

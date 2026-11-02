@@ -43,7 +43,8 @@ streamlit run app.py
   - **Python:** Advanced settings → **3.12** (matches `.python-version`). On 3.13/3.14,
     Cloud may build numpy/scipy/pandas from source and hang.
   - After a push, use **Reboot app** so the new entrypoint is picked up.
-- **Vercel static mirror (`web/`) and the showcase video (`video/`)** still show the retired heater lab and are **stale**: they were not ported to DriveBench, and `data/ui/` now uses a four-controller schema that the old mirror's JavaScript does not read. Do not deploy `web/` as it is; rebuild it against the new JSON or retire `web/` and `vercel.json`.
+- **Vercel static mirror (`web/`)** is rebuilt for DriveBench: six static pages (overview, bench, LQR design, MPC explorer, performance, plant model) over the same precomputed JSON, with no build step (`vercel.json` serves `web/` as is). Regenerate its data with `python scripts/sync_web_data.py` after any `data/ui` change. It is read-only: custom motors, live LQR weights and live runs need the Streamlit app.
+- **`video/`** (the showcase video project) still shows the retired heater lab and is **stale**.
 
 ## Interactive app
 

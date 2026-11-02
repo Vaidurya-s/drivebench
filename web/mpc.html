@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MPC Prediction Explorer · DriveBench</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="css/lab.css" />
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  </head>
+  <body>
+    <div class="shell" id="shell"></div>
+    <script type="module">
+      import { shell, status, getJSON } from "./js/nav.js";
+      import { mpcChart } from "./js/charts.js";
+      const SC = [["motor_startup", "Motor startup"], ["speed_tracking", "Speed tracking"], ["load_step", "Sudden load"],
+        ["load_removal", "Load removal"], ["voltage_saturation", "Voltage saturation"], ["current_protection", "Current protection"],
+        ["model_mismatch", "Model mismatch"], ["sensor_noise", "Sensor noise"], ["variable_load", "Variable load"], ["reverse_operation", "Reverse operation"]];
+      shell("mpc", `
+        <p class="eyebrow">Page 4</p><h1>MPC Prediction Explorer</h1>
+        <p class="lede">What MPC predicts over its 0.6 s horizon at each 10 ms sample, and which limits shape the plan. Only the first planned voltage is applied; the plan is recomputed at the next sample.</p>
+        <div id="st"></div>
+        <label>Scenario <select id="sc">${SC.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select></label>
+        <label style="margin-left:16px">Sample <input type="range" id="idx" min="0" max="0" value="0" style="vertical-align:middle;width:260px" /></label>
+        <button id="prev">Previous</button> <button id="next">Next</button>
+        <div class="grid" id="tiles" style="margin-top:12px"></div>
+        <p><b>Active constraints at this step</b></p><div class="chips" id="chips"></div>
+        <p class="note" id="cap"></p>
+        <div class="chart" id="chart"></div>
+        <p class="note">MPC respects voltage, voltage-rate and predicted-current limits inside its optimisation; the drive's protection layer acts on every controller regardless.</p>
+      `);
+      let log = null, i = 0;
+      const el = (id) => document.getElementById(id);
+      function draw() {
+        const s = log.snapshots[i];
+        el("idx").value = i;
+        el("tiles").innerHTML = [["Time", s.time_s.toFixed(2) + " s"], ["Measured speed", s.y_meas.toFixed(0) + " RPM"],
+          ["Planned voltage now", s.u_applied.toFixed(2) + " V"], ["Load estimate", s.d_hat.toFixed(3) + " N·m"],
+          ["Solve time", s.solve_ms.toFixed(2) + " ms"]].map(([k, v]) => `<div class="panel"><h3>${k}</h3><p class="mono">${v}</p></div>`).join("");
+        el("chips").innerHTML = s.active_constraints?.length ? s.active_constraints.map((c) => `<span>${c}</span>`).join("") : '<span class="ok" style="border-color:var(--ok);color:var(--ok)">no active constraints</span>';
+        el("cap").textContent = s.caption;
+        mpcChart(el("chart"), s, 0.01, 8, 24);
+      }
+      async function load(k) {
+        log = await getJSON(`data/step_through/${k}_h60.json`);
+        i = 0;
+        el("idx").max = log.snapshots.length - 1;
+        el("st").innerHTML = status(SC.find((x) => x[0] === k)[1]);
+        draw();
+      }
+      el("sc").onchange = (e) => load(e.target.value);
+      el("idx").oninput = (e) => { i = +e.target.value; draw(); };
+      el("prev").onclick = () => { i = Math.max(0, i - 1); draw(); };
+      el("next").onclick = () => { i = Math.min(log.snapshots.length - 1, i + 1); draw(); };
+      load("motor_startup");
+    </script>
+  </body>
+</html>

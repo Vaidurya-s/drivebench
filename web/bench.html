@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Experiment Bench · DriveBench</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="css/lab.css" />
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  </head>
+  <body>
+    <div class="shell" id="shell"></div>
+    <script type="module">
+      import { shell, status, getJSON } from "./js/nav.js";
+      import { IDS, LABELS, COLORS, legend } from "./js/theme.js";
+      import { quantityChart } from "./js/charts.js";
+      const PRESETS = [
+        ["default", "Default"], ["setpoint_step", "Speed step"], ["load_step", "Load step"],
+        ["load_removal", "Load removal"], ["periodic_load", "Periodic load"], ["noisy_encoder", "Noisy encoder"],
+        ["tight_limits", "Tight limits"], ["model_mismatch", "Mismatch"], ["reverse", "Reverse"],
+      ];
+      const TABS = [["speed", "Speed"], ["current", "Armature current"], ["voltage", "Drive voltage"], ["torque", "Torque"], ["power", "Power & energy"]];
+      shell("bench", `
+        <p class="eyebrow">Page 2</p><h1>Experiment Bench</h1>
+        <p class="lede">Pick a precomputed run. All four controllers see exactly the same reference, load and measurement noise.
+        Dotted vertical lines mark disturbance events; dashed red lines are the drive limits.</p>
+        <div id="st"></div>
+        <label>Preset <select id="preset">${PRESETS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select></label>
+        <span id="checks">${IDS.map((c) => `<label style="margin-left:14px"><input type="checkbox" value="${c}" checked /> <span style="color:${COLORS[c]}">${LABELS[c]}</span></label>`).join("")}</span>
+        <div id="leg" style="margin-top:12px"></div>
+        <div class="tabs" id="tabs">${TABS.map(([k, l]) => `<button data-q="${k}">${l}</button>`).join("")}</div>
+        <div class="chart" id="chart"></div>
+        <div class="grid" id="tiles"></div>
+        <h2>Key metrics</h2><div id="table"></div>
+      `);
+      let data = null, qty = "speed";
+      const sel = () => IDS.filter((c) => document.querySelector(`#checks input[value=${c}]`).checked);
+      const f = (v, n = 2) => (v == null ? "—" : Number(v).toFixed(n));
+      function draw() {
+        const ids = sel();
+        if (!ids.length) return;
+        document.getElementById("leg").innerHTML = legend(ids);
+        document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.q === qty));
+        quantityChart(document.getElementById("chart"), data, ids, qty);
+        document.getElementById("tiles").innerHTML = ids.map((c) => {
+          const m = data.runs[c].metrics;
+          return `<div class="tile" style="border-top-color:${COLORS[c]}"><h3 style="color:${COLORS[c]}">${LABELS[c]}</h3>
+            <div class="row"><span>Settling</span><b>${f(m.settling_time_s)} s</b></div>
+            <div class="row"><span>Overshoot</span><b>${f(m.overshoot_pct, 1)} %</b></div>
+            <div class="row"><span>IAE</span><b>${f(m.iae, 0)} RPM·s</b></div>
+            <div class="row"><span>Peak current</span><b>${f(m.max_current_a)} A</b></div>
+            <div class="row"><span>Current-limited</span><b>${f(m.current_limit_s)} s</b></div></div>`;
+        }).join("");
+        document.getElementById("table").innerHTML = `<table><tr><th>Controller</th><th>Rise [s]</th><th>Settling [s]</th><th>Overshoot [%]</th><th>IAE [RPM·s]</th><th>Max current [A]</th><th>V sat. [s]</th><th>Energy [J]</th><th>Mean exec [ms]</th></tr>${ids.map((c) => {
+          const m = data.runs[c].metrics, e = data.runs[c].exec_ms;
+          const mean = e && e.length ? e.reduce((a, b) => a + b, 0) / e.length : null;
+          return `<tr><td style="color:${COLORS[c]}">${LABELS[c]}</td><td class="num">${f(m.rise_time_s)}</td><td class="num">${f(m.settling_time_s)}</td><td class="num">${f(m.overshoot_pct, 1)}</td><td class="num">${f(m.iae, 0)}</td><td class="num">${f(m.max_current_a)}</td><td class="num">${f(m.voltage_saturation_s)}</td><td class="num">${f(m.electrical_energy_j, 0)}</td><td class="num">${f(mean, 3)}</td></tr>`;
+        }).join("")}</table>`;
+      }
+      async function load(name) {
+        data = await getJSON(`data/playground/${name}.json`);
+        document.getElementById("st").innerHTML = status(name.replace(/_/g, " "));
+        draw();
+      }
+      document.getElementById("preset").onchange = (e) => load(e.target.value);
+      document.getElementById("tabs").onclick = (e) => { if (e.target.dataset.q) { qty = e.target.dataset.q; draw(); } };
+      document.getElementById("checks").onchange = draw;
+      load("default");
+    </script>
+  </body>
+</html>

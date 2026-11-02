@@ -1,6 +1,6 @@
 {
   "framework": null,
-  "installCommand": "python scripts/sync_web_data.py",
-  "buildCommand": "python scripts/sync_web_data.py",
+  "buildCommand": "",
+  "installCommand": "",
   "outputDirectory": "web"
 }

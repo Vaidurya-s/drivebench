@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LQR Design Studio · DriveBench</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="css/lab.css" />
+  </head>
+  <body>
+    <div class="shell" id="shell"></div>
+    <script type="module">
+      import { shell, status, getJSON } from "./js/nav.js";
+      const d = await getJSON("data/lqr.json");
+      const g = (v) => Number(v).toPrecision(4);
+      const mat = (M) => M.map((r) => r.map((x) => Number(x).toFixed(3).padStart(10)).join("")).join("\n");
+      const maxAbs = Math.max(...d.eig_re.map((re, i) => Math.hypot(re, d.eig_im[i])));
+      shell("lqr", `
+        <p class="eyebrow">Page 3</p><h1>LQR Design Studio</h1>
+        <p class="lede">Integral-augmented LQR (LQI): state feedback on armature current, speed and the integral of the speed error, with the gain from the discrete algebraic Riccati equation at the 10 ms controller period. This static page shows the recommended weights; change the weights interactively in the Streamlit app.</p>
+        ${status("LQR design")}
+        <h2>Model</h2>
+        <pre>x = [i_a, ω]ᵀ,   A = [[-R/L, -Ke/L], [Kt/J, -B/J]],   B = [1/L, 0]ᵀ,   C = [0 1]
+ξ̇ = ω − r,   A_aug = [[A, 0], [C, 0]],   B_aug = [B; 0],   B_ref = [0, 0, −1]ᵀ
+J = Σ x_augᵀ Q x_aug + uᵀ R u,   K = (R + BdᵀP Bd)⁻¹ BdᵀP Ad,   u = −K x_aug</pre>
+        <div id="proc"></div>
+        <h2>Design result <span class="ok mono">stable · controllable · Riccati verified</span></h2>
+        <div class="grid">
+          <div class="panel"><h3>Controllability rank</h3><p class="mono">${d.rank} / 3</p></div>
+          <div class="panel"><h3>Max |closed-loop pole|</h3><p class="mono">${maxAbs.toFixed(4)}</p></div>
+          <div class="panel"><h3>Riccati residual</h3><p class="mono">${d.residual.toExponential(1)}</p></div>
+          <div class="panel"><h3>Gain calculation</h3><p class="mono">${d.design_time_ms.toFixed(1)} ms</p></div>
+        </div>
+        <h2>Weights (dimensionless)</h2>
+        <pre>q_current = ${d.weights.q_current}    q_speed = ${d.weights.q_speed}    q_integral = ${d.weights.q_integral}    r_voltage = ${d.weights.r_voltage}
+Q = diag(${d.Q_diag.map(g).join(", ")}),   R = ${g(d.R)}</pre>
+        <h2>Gain K</h2>
+        <table><tr><th>K_i [V/A]</th><th>K_ω [V/(rad/s)]</th><th>K_ξ [V/rad]</th></tr>
+        <tr><td class="num">${g(d.K[0])}</td><td class="num">${g(d.K[1])}</td><td class="num">${g(d.K[2])}</td></tr></table>
+        <h2>Riccati solution P</h2><pre>${mat(d.P)}</pre>
+        <h2>Closed-loop poles (z-plane)</h2>
+        <pre>${d.eig_re.map((re, i) => `${re.toFixed(4)} ${d.eig_im[i] >= 0 ? "+" : "−"} ${Math.abs(d.eig_im[i]).toFixed(4)}j   |z| = ${Math.hypot(re, d.eig_im[i]).toFixed(4)}`).join("\n")}</pre>
+        <p class="note">The design is rejected, and no gain used, if the weights are invalid, the augmented system is uncontrollable, the Riccati equation fails or any |λ| ≥ 1.</p>
+      `);
+      fetch("diagrams/lqr.html").then((r) => r.text()).then((t) => (document.getElementById("proc").innerHTML = t));
+    </script>
+  </body>
+</html>
