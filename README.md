@@ -57,7 +57,11 @@ Dark graphite theme (`.streamlit/config.toml`, tokens in `src/mpc_core/sim/theme
 5. **Performance Review**: four-controller scorecard for each scenario (response, error integrals, current and voltage limits, energy, execution time).
 6. **Plant Model**: equations, transfer function, matrices, parameters, limits, assumptions and limitations.
 
-Screenshots: `python scripts/capture_streamlit_screenshots.py` with the app running (needs Playwright).
+| System Overview | Experiment Bench | LQR Design Studio |
+| :---: | :---: | :---: |
+| <img src="docs/drivebench-overview.jpg" width="300" alt="System overview"> | <img src="docs/drivebench-bench.jpg" width="300" alt="Experiment bench, load step"> | <img src="docs/drivebench-lqr-studio.jpg" width="300" alt="LQR design studio response preview"> |
+
+These were captured from the running app in Chrome. To regenerate all six pages plus presets: `python scripts/capture_streamlit_screenshots.py` with the app running (needs Playwright).
 
 ## Proof (batch metrics)
 
