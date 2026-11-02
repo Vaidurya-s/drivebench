@@ -1,52 +1,37 @@
-# Academic report (Industrial Control)
+# DriveBench technical report
 
-Course write-up for the PID, optimised PID, LQR and MPC lab on the PMDC motor drive.
+Report on speed regulation of a permanent-magnet DC (PMDC) drive with PID, optimised PID, LQR (with integral action) and MPC.
 
 | Artifact | Path |
 | --- | --- |
-| LaTeX source | [`main.tex`](main.tex) |
-| Built PDF | [`report.pdf`](report.pdf) |
-| Figures | [`figures/`](figures/) |
+| LaTeX source | [`drivebench_report.tex`](drivebench_report.tex) |
+| Built PDF | [`drivebench_report.pdf`](drivebench_report.pdf) |
+| Figures | [`figures/`](figures/) (`fig_*.png`, generated) |
 | Metrics used in the PDF | [`metrics_summary.json`](metrics_summary.json) |
-| Generated tables | [`results_table.tex`](results_table.tex) (`\input` by `main.tex`), [`results_tables.md`](results_tables.md) |
-| Shorter Markdown draft | [`report.md`](report.md) (headline numbers are typed from the JSON; rebuild metrics, then check them) |
+| Generated tables and number macros | [`results_table.tex`](results_table.tex), [`numbers.tex`](numbers.tex), [`results_tables.md`](results_tables.md) |
+| Shorter Markdown draft | [`report.md`](report.md) (headline numbers typed from the JSON; re-check after a rebuild) |
 
-British spelling. Prefer numbers from `metrics_summary.json` after a metrics rebuild.
-
-## What the numbers mean
-
-- **Batch scenarios** in `metrics_summary.json → scenarios`: the ten motor scenarios plus the opposite mismatch corner (`model_mismatch_low`). Each has `mpc`, `pid` and `optimized_pid` metric sets (the full list is `SCORECARD_COLUMNS` in `sim/metrics.py`).
-- **Optimised PID** uses the frozen gains in `optimized_pid_gains` (tuned once on `speed_tracking`, also stored in `data/ui/optimized_pid.json`). Nothing is retuned per scenario.
-- **`robustness_model_mismatch`** compares MPC, the frozen optimised PID and an optimised PID retuned on the mismatched plant.
-- **MPC / motor / drive settings** are stored under `mpc`, `motor`, `drive`, `timing`.
-- Simulation PNGs under `figures/<scenario>.png` are produced by the metrics script. Architecture and bar charts (`architecture.png`, `iae_bars.png`, `current_limit_bars.png`, `robustness_bars.png`) and the generated tables come from the charts script.
+British spelling. All figures quoted in the PDF text come from `numbers.tex` (generated), all plots from `scripts/report_figures.py`, and the table from `results_table.tex`; nothing is typed by hand.
 
 ## Rebuild from the repo root
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-
-# Full pipeline: metrics → charts and tables → PDF
 bash scripts/rebuild_academic_report.sh
 ```
 
 Or step by step:
 
 ```bash
-python3 scripts/rebuild_report_metrics.py   # report/metrics_summary.json + figures/<scenario>.png
-python3 scripts/rebuild_report_charts.py    # architecture, bar charts, results tables
-cd report
-latexmk -pdf -interaction=nonstopmode main.tex   # preferred
-# else: pdflatex main.tex && pdflatex main.tex
-# else: tectonic main.tex
-cp -f main.pdf report.pdf
+python3 scripts/rebuild_report_metrics.py   # runs every scenario for all four controllers (~15 min); writes metrics_summary.json, results/, figures
+python3 scripts/rebuild_report_charts.py    # results_table.tex, numbers.tex, results_tables.md
+cd report && latexmk -pdf -interaction=nonstopmode drivebench_report.tex
 ```
 
-Dependencies: Python 3.12+, project `[dev]` extras (matplotlib, pytest, streamlit), and a LaTeX engine (`latexmk`, `pdflatex`, or `tectonic`; `multirow` is required). CasADi and SciPy come from the core install.
+To redraw only the figures from a previous run, keep `report/figures/_results.pkl` (git-ignored) and run `python scripts/report_figures.py`.
 
-A full metrics rebuild takes a few minutes. Do not hand-edit numbers in `main.tex` tables; change the sim, rebuild metrics and charts (which regenerates `results_table.tex`). The prose in `main.tex` and `report.md` quotes a few numbers: re-check them against the JSON after any rebuild.
+Dependencies: Python 3.12+, the project `[dev]` extras (matplotlib, pytest, streamlit), and a LaTeX engine with `tikz`, `tcolorbox`, `titlesec`, `fancyhdr`, `enumitem` and `siunitx` (MiKTeX and TeX Live include them).
 
-## Layout of `main.tex`
+## Layout
 
-Abstract → introduction → models (plant, prediction model and observer, drive, measurement) → controllers → system design → experimental setup → results (generated table, IAE bars, traces, drive limits, noise and robustness) → discussion and limitations → conclusion → references.
+Summary box → drive and its limits (TikZ signal path) → motor model → four control laws (TikZ lanes, pole map, MPC horizon schematic) → fairness table → results (table, IAE ranking heat-map, zoomed transients, current-speed plane, current-limit timeline, robustness dot plot, error against computation) → limitations → reproduction commands.

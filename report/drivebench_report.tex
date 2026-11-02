@@ -1,0 +1,420 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[a4paper,left=2.6cm,right=2.2cm,top=2.4cm,bottom=2.3cm]{geometry}
+\usepackage[table]{xcolor}
+\usepackage{booktabs,array,multirow}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{siunitx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds,shapes.geometric}
+\usepackage[most]{tcolorbox}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage[hidelinks]{hyperref}
+\usepackage{microtype}
+\usepackage{float}
+
+% --- palette (graphite and teal; deliberately different from the course template) ---
+\definecolor{ink}{HTML}{1F2A33}
+\definecolor{slate}{HTML}{5B6770}
+\definecolor{teal}{HTML}{1B998B}
+\definecolor{amber}{HTML}{E08E0B}
+\definecolor{violet}{HTML}{6D3FC0}
+\definecolor{mist}{HTML}{EEF2F5}
+\definecolor{best}{HTML}{DDF3EF}
+\definecolor{limit}{HTML}{C0392B}
+
+\input{numbers.tex}
+\newcommand{\R}[1]{\csname R@#1\endcsname}
+\newcommand{\Lw}[1]{\csname L@#1\endcsname}
+\newcommand{\Gp}[1]{\csname G@#1\endcsname}
+
+\color{ink}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt plus 1pt}
+\renewcommand{\arraystretch}{1.12}
+
+\titleformat{\section}{\Large\bfseries\color{ink}}{\color{teal}\thesection}{0.7em}{}[{\color{teal}\titlerule[1.2pt]}]
+\titleformat{\subsection}{\large\bfseries\color{ink}}{\color{teal}\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{16pt}{8pt}
+\titlespacing*{\subsection}{0pt}{10pt}{4pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small\color{slate}DriveBench technical report}
+\fancyhead[R]{\small\color{slate}PMDC speed regulation: PID, LQR and MPC}
+\fancyfoot[C]{\small\color{slate}\thepage}
+
+\captionsetup{font={small,color=slate},labelfont={bf,color=ink},labelsep=period,skip=4pt}
+
+\newtcolorbox{finding}[1][]{enhanced,colback=mist,colframe=teal,boxrule=0pt,leftrule=3pt,arc=0pt,
+  left=8pt,right=8pt,top=5pt,bottom=5pt,fonttitle=\bfseries\small,title=Finding,
+  coltitle=teal,colbacktitle=mist,attach boxed title to top left={yshift=-2mm},
+  boxed title style={boxrule=0pt,colback=mist},#1}
+
+
+\begin{document}
+
+% ---------------------------------------------------------------- title block
+\begin{tikzpicture}[remember picture,overlay]
+  \fill[ink] (current page.north west) rectangle ([yshift=-5.2cm]current page.north east);
+  \fill[teal] ([yshift=-5.2cm]current page.north west) rectangle ([yshift=-5.35cm]current page.north east);
+  \node[anchor=north west,text=teal!55!white,font=\small\bfseries] at ([xshift=2.6cm,yshift=-1.0cm]current page.north west)
+    {TECHNICAL REPORT\quad$\cdot$\quad PMDC MOTOR CONTROL \& ANALYSIS};
+  \node[anchor=north west,text=white,font=\fontsize{30}{34}\selectfont\bfseries] at ([xshift=2.6cm,yshift=-1.7cm]current page.north west)
+    {DriveBench};
+  \node[anchor=north west,text=white,font=\large,text width=14.5cm,align=left] at ([xshift=2.6cm,yshift=-3.0cm]current page.north west)
+    {Speed regulation of a permanent-magnet DC drive with PID, optimised PID, LQR and model predictive control};
+  \node[anchor=north west,text=white!80!ink,font=\small] at ([xshift=2.6cm,yshift=-4.4cm]current page.north west)
+    {Vaidurya Shah};
+\end{tikzpicture}
+\vspace*{3.3cm}
+
+\begin{finding}[title=Summary]
+Four controllers regulate the shaft speed of one simulated motor through one shared voltage drive.
+They see identical references, load torques, bus levels and encoder noise in eleven runs.
+MPC has the lowest speed-error integral (IAE) in \Lw{winsMPC} of the 11 runs, LQR in \Lw{winsLQR}, and \Lw{winsTie} is a tie (within 0.5\,\%);
+LQR is the fastest to settle at startup (\M{motor_startup}{lqr}{settling_time_s}\,s) and the best at
+load disturbances (IAE \M{load_step}{lqr}{iae} against \M{load_step}{mpc}{iae} for MPC);
+MPC keeps the drive out of its current limit for less than half the time of the others under
+overload (\M{current_protection}{mpc}{current_limit_s}\,s against \M{current_protection}{lqr}{current_limit_s}\,s for LQR) but
+costs about \M{motor_startup}{mpc}{exec_ms_mean}\,ms of computation per 10\,ms sample instead of
+\M{motor_startup}{lqr}{exec_ms_mean}\,ms.
+The LQR and MPC settings were chosen by hand while looking at these runs, so this is a
+demonstration of mechanisms, not a neutral tuning contest.
+\end{finding}
+
+\tableofcontents
+
+% ---------------------------------------------------------------- 1
+\section{The drive and what limits it}
+A speed drive of this kind turns conveyors, pumps and machine axes. The controller does not touch the
+motor directly: it requests an armature voltage, and a drive layer decides what the motor actually
+receives. Figure~\ref{fig:loop} shows the signal path used for every controller in this report.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  font=\small, >=Stealth,
+  blk/.style={draw=ink,rounded corners=2pt,minimum height=1.05cm,align=center,fill=white,line width=0.6pt},
+  hot/.style={blk,fill=teal!14,draw=teal},
+  sen/.style={blk,fill=mist,draw=slate,minimum height=0.8cm},
+  wire/.style={-{Stealth[length=2.2mm]},line width=0.7pt,color=ink},
+  fb/.style={-{Stealth[length=2.2mm]},line width=0.7pt,color=teal,dash pattern=on 3pt off 2pt}]
+  \node[blk] (ref) {speed\\reference $r$};
+  \node[blk,right=0.9cm of ref] (ctl) {controller\\\footnotesize every 10\,ms};
+  \node[hot,right=0.9cm of ctl,minimum width=3.7cm] (drv) {voltage drive\\[-1pt]\footnotesize enable\,$\rightarrow$\,slew\,$\rightarrow$\,$\pm V_{\max}$\,$\rightarrow$\,$I$ window};
+  \node[blk,right=0.9cm of drv] (mot) {PMDC\\motor};
+  \draw[wire] (ref) -- (ctl);
+  \draw[wire] (ctl) -- node[above,font=\footnotesize]{$V_{req}$} (drv);
+  \draw[wire] (drv) -- node[above,font=\footnotesize]{$V_a$} (mot);
+  \node[blk,above=0.75cm of mot,fill=amber!14,draw=amber] (load) {load\\$T_L(t)$};
+  \draw[wire] (load) -- (mot);
+  \node[blk,above=0.75cm of drv,fill=amber!14,draw=amber] (bus) {DC bus\\sag};
+  \draw[wire] (bus) -- (drv);
+  \node[sen,below=1.5cm of mot,xshift=-1.0cm] (enc) {encoder\\\footnotesize $\omega$ + noise};
+  \node[sen,below=1.5cm of mot,xshift=1.4cm] (cur) {current\\\footnotesize $i_a$};
+  \draw[fb] ($(mot.south)+(-0.4,0)$) -- (enc.north -| {$(mot.south)+(-0.4,0)$});
+  \draw[fb] ($(mot.south)+(0.6,0)$) -- (cur.north -| {$(mot.south)+(0.6,0)$});
+  \draw[fb] (enc.west) -- ++(-0.3,0) |- ($(ctl.south)+(-0.25,-2.55cm)$) -- ($(ctl.south)+(-0.25,0)$);
+  \draw[fb] (cur.south) -- ++(0,-0.35) -| ($(ctl.south)+(0.25,0)$);
+  \node[font=\footnotesize,color=slate,anchor=north] at ($(drv.south)+(-0.4,-2.8)$) {measurements go to every controller};
+\end{tikzpicture}
+\caption{Signal path shared by all four controllers. Only the \emph{controller} block changes between runs; the drive, plant, sensors and disturbances are identical.}
+\label{fig:loop}
+\end{figure}
+
+The drive applies, in this order: an enable/e-stop gate, a slew limit of \SI{1200}{\volt\per\second}, saturation at $\pm V_{\max}$ times the
+DC-bus level (24\,V nominal), and a current window. The window is not a clip of the simulated current. It restricts the
+voltage so that the exact one-sample electrical response stays inside $\pm I_{\max}$ (8\,A), using the drive's nominal $R_a$ and $K_e$ and
+the measured current and speed. Under $\pm20\,\%$ winding-resistance error it can be exceeded briefly (up to \M{model_mismatch_low}{lqr}{max_current_a}\,A in the
+low-resistance corner) before the feedback term pulls the voltage down.
+
+% ---------------------------------------------------------------- 2
+\section{The motor model}
+The plant is the coupled electrical and mechanical system
+\begin{equation}
+L_a\frac{di_a}{dt}=V_a-R_a i_a-K_e\omega,\qquad J\frac{d\omega}{dt}=K_t i_a-B\omega-T_L,\qquad \frac{d\theta}{dt}=\omega.
+\end{equation}
+With the baseline parameters in Table~\ref{tab:params} the state matrices for $x=[i_a,\omega,\theta]^\top$ are
+\begin{equation}
+A=\begin{bmatrix}-100&-5&0\\25&-0.5&0\\0&1&0\end{bmatrix},\quad
+B=\begin{bmatrix}100\\0\\0\end{bmatrix},\quad
+E=\begin{bmatrix}0\\-500\\0\end{bmatrix},
+\end{equation}
+and the transfer function $\Omega/V_a=K_t/(L_aJs^2+(L_aB+R_aJ)s+R_aB+K_eK_t)$ has poles at $-98.7$ and $-1.75\,\mathrm{s^{-1}}$:
+an electrical time constant of 10\,ms and a mechanical one of about 0.57\,s. The plant is integrated with RK4 at 1\,ms while the
+controllers update every 10\,ms and hold their output between updates.
+
+\begin{table}[H]
+\centering\small
+\caption{Baseline motor and drive parameters (illustrative, not a commercial motor).}\label{tab:params}
+\begin{tabular}{@{}lr@{\hspace{1.4cm}}lr@{}}
+\toprule
+$R_a$ & 1.0\,$\Omega$ & $J$ & 0.002\,kg\,m$^2$ \\
+$L_a$ & 10\,mH & $B$ & 0.001\,N\,m\,s/rad \\
+$K_t=K_e$ & 0.05 & nominal $T_L$ & 0.05\,N\,m \\
+$V_{\max}$ & 24\,V & $I_{\max}$ & 8\,A \\
+top speed & 3000\,RPM & slew limit & 1200\,V/s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Four models, kept apart.} The \emph{actual plant} may use mismatched $R_a,L_a,J,B$. The controllers' \emph{prediction models} are always the
+nominal motor. The \emph{drive} is a separate layer with its own limits. The \emph{measurement model} adds seeded Gaussian noise to the encoder and
+measures current ideally.
+
+% ---------------------------------------------------------------- 3
+\clearpage
+\section{Four control laws}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\footnotesize,>=Stealth,
+  lane/.style={draw=none,fill=mist,minimum width=15.2cm,minimum height=1.05cm,anchor=west},
+  stp/.style={draw=ink,rounded corners=2pt,fill=white,minimum height=0.62cm,align=center,inner xsep=4pt},
+  tag/.style={font=\bfseries\small,anchor=west},
+  arr/.style={-{Stealth[length=1.8mm]},line width=0.55pt}]
+  % lanes
+  \foreach \y/\c/\t in {0/slate/PID,-1.25/teal/Optimised PID,-2.5/amber/LQR (LQI),-3.75/violet/MPC}{
+    \node[lane] at (0,\y) {};
+    \fill[\c] (0,\y-0.525) rectangle (0.12,\y+0.525);
+    \node[tag,text=\c!80!black] at (0.25,\y) {\t};
+  }
+  % PID
+  \node[stp] (p1) at (3.9,0) {error $r-\omega$};
+  \node[stp,right=0.45cm of p1] (p2) {$K_p e+I-K_d\dot\omega_f$};
+  \node[stp,right=0.45cm of p2] (p3) {anti-windup\\[-2pt]vs applied $V$};
+  \draw[arr] (p1)--(p2); \draw[arr] (p2)--(p3);
+  \node[anchor=west,text=slate] at (11.6,0) {speed only};
+  % Opt PID
+  \node[stp] (o1) at (3.9,-1.25) {same law};
+  \node[stp,right=0.45cm of o1] (o2) {gains from L-BFGS-B};
+  \node[stp,right=0.45cm of o2] (o3) {frozen after one\\[-2pt]tuning run};
+  \draw[arr] (o1)--(o2); \draw[arr] (o2)--(o3);
+  \node[anchor=west,text=slate] at (11.6,-1.25) {speed only};
+  % LQR
+  \node[stp] (l1) at (3.9,-2.5) {$[i_a,\omega,\xi]$\\[-2pt]$\dot\xi=\omega-r$};
+  \node[stp,right=0.45cm of l1] (l2) {$u_{ff}-K_x(x-x_{eq})-K_\xi\xi$};
+  \node[stp,right=0.45cm of l2] (l3) {back-calculation\\[-2pt]anti-windup};
+  \draw[arr] (l1)--(l2); \draw[arr] (l2)--(l3);
+  \node[anchor=west,text=slate] at (11.6,-2.5) {speed + current};
+  % MPC
+  \node[stp] (m1) at (3.9,-3.75) {observer\\[-2pt]$\hat d_T,\hat d_V$};
+  \node[stp,right=0.45cm of m1] (m2) {constrained QP\\[-2pt]$N{=}60$, 6 moves};
+  \node[stp,right=0.45cm of m2] (m3) {apply first move,\\[-2pt]re-plan next sample};
+  \draw[arr] (m1)--(m2); \draw[arr] (m2)--(m3);
+  \node[anchor=west,text=slate] at (11.6,-3.75) {speed + current};
+\end{tikzpicture}
+\caption{What each controller computes every 10\,ms. All four output a voltage request that enters the same drive.}
+\label{fig:lanes}
+\end{figure}
+
+\subsection{PID and optimised PID}
+The positional PID takes RPM and returns volts. Its derivative acts on the (low-pass filtered) measurement so reference steps cause no kick~\cite{ah2006}, and the
+integrator is unwound by back-calculation against the voltage the drive \emph{applied}, so slew, saturation and current limiting all stop windup.
+The hand-tuned gains are $K_p{=}0.01$\,V/RPM, $K_i{=}0.03$, $K_d{=}0$. The optimised PID uses the same law with gains minimising a weighted sum of IAE,
+overshoot, settling time, voltage effort and time in voltage saturation and current limit (L-BFGS-B). They were found once on the
+speed-tracking scenario ($K_p{=}\Gp{kp}$, $K_i{=}\Gp{ki}$, $K_d{=}\Gp{kd}$) and are frozen for every comparison.
+
+\subsection{LQR with integral action}
+Augmenting the state with $\xi=\int(\omega-r)\,dt$ gives a three-state design model. The plant part is discretised exactly (zero-order hold) at
+$T_s=10$\,ms, and the integrator uses the same forward-Euler update the controller executes, so the Riccati design certifies the loop that actually runs.
+The cost is $\sum x_{aug}^\top Qx_{aug}+u^\top Ru$ on states scaled by $I_{\max}$, $\omega_{\max}$, $0.5\,\mathrm{s}\cdot\omega_{\max}$ and voltage scaled by $V_{\max}$,
+with dimensionless weights $q_i=\Lw{q_current}$, $q_\omega=\Lw{q_speed}$, $q_\xi=\Lw{q_integral}$, $r_V=\Lw{r_voltage}$.
+Solving the discrete algebraic Riccati equation~\cite{am1990} gives the gain
+\begin{equation}
+K=\bigl[K_i,K_\omega,K_\xi\bigr]=\bigl[\Lw{KI},\ \Lw{KW},\ \Lw{KX}\bigr]\ \text{(V/A, V/(rad/s), V/rad)},
+\end{equation}
+and the law is $u=u_{ff}(r)-K_x(x-x_{eq}(r))-K_\xi\xi$ with the zero-load equilibrium as feedforward. The design is rejected, and no gain used, when the augmented
+pair is uncontrollable, the Riccati equation fails or any closed-loop pole leaves the unit circle. Figure~\ref{fig:poles} shows the result: the electrical
+pole moves in to about $0.27$ and all closed-loop poles lie within $|z|\le\Lw{maxpole}$.
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[c]{0.40\linewidth}\centering
+\includegraphics[width=\linewidth]{figures/fig_lqr_poles.png}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.55\linewidth}
+\small
+\textbf{Reading the plot.} Circles are the poles of the discretised augmented plant before feedback: the fast electrical pole near $z=0.37$ and the
+two slow modes (mechanical and integrator) close to $z=1$. Crosses are the closed-loop poles. Feedback of current moves the electrical pole inward,
+and the integral gain pulls the slow pair away from the unit circle, which is what removes steady-state speed error.
+\end{minipage}
+\caption{LQR pole map for the recommended weights.}\label{fig:poles}
+\end{figure}
+
+\subsection{Offset-free MPC}
+MPC predicts with the two-state model $x_{k+1}=A_dx_k+B_d(V_k+\hat d_V)+E_d\hat d_T$, $x=[i_a,\omega]^\top$. Each sample the innovations of the
+measured current and speed are mapped to a load-torque estimate $\hat d_T$ and an armature-voltage estimate $\hat d_V$ (observer gain 0.1).
+This follows the offset-free disturbance-model idea of~\cite{pr2003} within the framework of~\cite{rmd2017}. Estimating both matters: with a torque-only estimate the speed kept a $44$\,RPM offset under $+20\,\%$ resistance in development.
+Over a horizon of $N=60$ samples (0.6\,s) it chooses six blocked voltage moves minimising weighted speed error, a terminal speed error and voltage change,
+subject to the voltage box, the voltage change between moves, and the \emph{predicted} armature current $|i_{a,k}|\le I_{\max}$ over the whole horizon
+(Figure~\ref{fig:horizon}). SciPy SLSQP solves it with analytic gradients because all constraints are linear in the moves.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\footnotesize,>=Stealth]
+  \draw[->,line width=0.7pt] (0,0) -- (13.4,0) node[right]{time};
+  \fill[mist] (5,-0.55) rectangle (12.8,2.6);
+  \draw[ink,dashed] (5,-0.55) -- (5,2.8) node[above]{now ($k$)};
+  \node[anchor=east,color=slate] at (4.9,2.3) {past};
+  \node[color=slate] at (8.9,2.45) {prediction horizon $N=60$ samples (0.6\,s)};
+  % reference
+  \draw[ink,dotted,line width=0.9pt] (0.4,1.9) -- (7.6,1.9) -- (7.6,2.15) -- (12.8,2.15);
+  \node[anchor=west,color=ink] at (12.85,2.15) {$r$};
+  % measured past
+  \draw[slate,line width=1.1pt] (0.4,0.2) .. controls (2,0.3) and (3.5,0.9) .. (5,1.1);
+  \fill[teal] (5,1.1) circle (2.2pt);
+  % predicted
+  \draw[violet,line width=1.5pt] (5,1.1) .. controls (6.3,1.6) and (7.3,1.85) .. (8.2,1.95) .. controls (9.6,2.1) .. (12.8,2.14);
+  % voltage blocks
+  \foreach \x/\w/\h in {5/0.2/0.55, 5.2/0.4/0.52, 5.6/0.8/0.47, 6.4/1.6/0.42, 8.0/2.4/0.38, 10.4/2.4/0.36}{
+    \draw[violet,fill=violet!25] (\x,-0.5) rectangle ++(\w,\h);
+  }
+  \node[anchor=west,color=violet] at (5.05,-0.8) {six voltage moves, block lengths 1, 2, 4, 8, 16, 29};
+  \draw[limit,line width=0.8pt,dashed] (5,0.6) -- (12.8,0.6);
+  \node[anchor=west,color=limit] at (5.05,0.78) {$V_{\max}$ and $|i_a|\le I_{\max}$ enforced on the prediction};
+  \node[anchor=east,color=ink] at (4.9,1.1) {measured $\omega,i_a$};
+\end{tikzpicture}
+\caption{The receding horizon: only the first planned move is applied; the plan is recomputed from the new measurement at the next sample.}
+\label{fig:horizon}
+\end{figure}
+
+% ---------------------------------------------------------------- 4
+\section{How the comparison is kept fair}
+\begin{table}[H]
+\centering\small
+\caption{What is shared, and what differs.}\label{tab:fair}
+\begin{tabular}{@{}p{3.4cm}p{5.2cm}p{5.6cm}@{}}
+\toprule
+ & Identical for all four & Differs \\
+\midrule
+Plant and drive & motor parameters, drive limits, slew, current window & --- \\
+Inputs & reference, load torque, bus level, seeded noise realisation, initial state & --- \\
+Timing & 10\,ms controller, 1\,ms plant, zero-order hold & --- \\
+Measurements & encoder speed with the same noise & LQR and MPC also use measured current; PID loops do not \\
+Tuning & optimised PID tuned once, frozen & LQR weights and MPC settings hand-set \\
+Cost & same metric code & MPC solves an optimisation each sample \\
+\bottomrule
+\end{tabular}
+\end{table}
+A test asserts that the reference, load and noise arrays are identical across controllers, and that all four stay inside the drive's
+voltage limit in every scenario.
+
+% ---------------------------------------------------------------- 5
+\section{Results}
+Eleven runs cover startup, four-step tracking, sudden load, load removal, voltage saturation (2900\,RPM with a bus sag to 85\,\%),
+current protection (a load that needs more than 8\,A), model mismatch at both corners ($R_a{+}20\%$, $J{+}30\%$, $B{+}25\%$ and the opposite), encoder noise
+(15\,RPM), variable load (0.5\,Hz sinusoid plus bounded random torque) and a reversal. Table~\ref{tab:results} lists the headline metrics and
+Figure~\ref{fig:rank} ranks the error integral. All numbers are produced by the repository's scripts.
+
+\begin{table}[H]
+\centering\scriptsize
+\setlength{\tabcolsep}{3.2pt}
+\caption{Error integral, settling time and time in current limit. Shaded cells are the best of the four (no shading when all tie; ``n/a'' means the speed never stayed inside the 2\,\% band).}
+\label{tab:results}
+\input{results_table.tex}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.78\linewidth]{figures/fig_rank_heatmap.png}
+\caption{IAE relative to the best controller in each run. MPC and LQR split the wins; the PID variants are far behind on load disturbances.}
+\label{fig:rank}
+\end{figure}
+
+\subsection{Transient shapes}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures/fig_step_panels.png}
+\caption{Zoomed speed responses. In the reversal panel the MPC trace leaves 1000\,RPM before the reference changes: it previews the upcoming step.}
+\label{fig:steps}
+\end{figure}
+Startup is limited by the 8\,A current ceiling for all controllers, so differences come from how late each one leaves the ceiling
+(Figure~\ref{fig:phase}): LQR holds the current limit longest and settles first (\M{motor_startup}{lqr}{settling_time_s}\,s against \M{motor_startup}{mpc}{settling_time_s}\,s for MPC and \M{motor_startup}{pid}{settling_time_s}\,s for the hand-tuned PID).
+On the load step the integral-plus-current-feedback structure of the LQR reacts fastest (peak dip well under the others), MPC next through its disturbance estimate, and the PIDs
+only after the speed error has grown.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\linewidth]{figures/fig_phase_plane.png}
+\caption{Armature current against speed. The red dashed line is $I_{\max}$.}
+\label{fig:phase}
+\end{figure}
+
+\subsection{Current protection}
+When the load needs more than 8\,A, nothing can hold 2500\,RPM, and the question becomes how the drive spends its time at the limit.
+Figure~\ref{fig:limit} shows the intervals during which the drive's current window was active.
+MPC leaves the limit for most of the second half (\M{current_protection}{mpc}{current_limit_s}\,s in total), while the other three stay in it
+(\M{current_protection}{pid}{current_limit_s}, \M{current_protection}{optimized_pid}{current_limit_s} and \M{current_protection}{lqr}{current_limit_s}\,s), because only MPC sees the limit in its prediction.
+Their error integrals are nonetheless within 2\,\% of each other (\M{current_protection}{pid}{iae}, \M{current_protection}{optimized_pid}{iae}, \M{current_protection}{lqr}{iae}, \M{current_protection}{mpc}{iae}), since the actuator, not the algorithm, sets the best achievable speed.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_limit_timeline.png}
+\caption{Intervals with the current window active in the current-protection run; the figure on the right is the total time.}
+\label{fig:limit}
+\end{figure}
+
+\subsection{Robustness and noise}
+Figure~\ref{fig:rob} compares the nominal, mismatched and noisy runs. Under $+20\%$ resistance MPC stays offset-free with its two disturbance estimates
+(IAE \M{model_mismatch}{mpc}{iae}, against \R{optimized_pid_frozen_nominal_gains} for the frozen optimised PID and \R{optimized_pid_retuned_on_mismatch} for a PID retuned on the
+mismatched plant, and \M{model_mismatch}{lqr}{iae} for LQR). With 15\,RPM encoder noise the MPC keeps the lowest IAE (\M{sensor_noise}{mpc}{iae}) after the observer gain was lowered to 0.1; at gain 1 it
+amplified the noise into the voltage and lost to the PID loops.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\linewidth]{figures/fig_robustness.png}
+\caption{IAE relative to the best controller in four cases. A dot at 1.0 is the best.}
+\label{fig:rob}
+\end{figure}
+
+\subsection{Error against computation}
+\begin{figure}[H]
+\centering
+\begin{minipage}[c]{0.46\linewidth}\centering
+\includegraphics[width=\linewidth]{figures/fig_cost_vs_error.png}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.5\linewidth}\small
+Averaged geometrically over the eleven runs, the LQR's IAE is \Lw{gmlqr} times the best in each run, MPC's is \Lw{gmmpc}, the optimised PID's \Lw{gmoptimized_pid} and the hand-tuned PID's \Lw{gmpid}.
+The LQR gets there with about \M{motor_startup}{lqr}{exec_ms_mean}\,ms of computation per sample; MPC needs roughly \M{motor_startup}{mpc}{exec_ms_mean}\,ms, a few hundred times more, and wins where
+previewing the reference or the current limit matters. The solve is well inside the 10\,ms period on this machine, but it is not a hard real-time guarantee.
+\end{minipage}
+\caption{Geometric-mean IAE ratio against mean execution time (log axis).}
+\label{fig:cost}
+\end{figure}
+
+% ---------------------------------------------------------------- 6
+\section{Limitations}
+\begin{itemize}[leftmargin=1.2em,itemsep=2pt]
+\item The LQR weights (chosen from a short sweep on startup) and the MPC horizon, weights and observer gain were set by hand while looking at these runs.
+\item LQR and MPC use measured current and a nominal model that matches the plant when no mismatch is applied; the PID loops are single speed loops.
+\item The motor is linear with constant parameters: no brush drop, saturation, temperature drift, Coulomb friction or cogging. The current sensor is ideal and the load keeps its sign at standstill.
+\item Efficiency figures use an illustrative 0.95 power-stage efficiency and are not data.
+\item No stability proof is claimed for any controller under saturation, and the MPC solve time is not a real-time guarantee.
+\item The parameters are illustrative; none of the numbers describe a commercial motor.
+\end{itemize}
+
+% ---------------------------------------------------------------- 7
+\section{Reproducing this report}
+\begin{tcolorbox}[colback=mist,colframe=mist,boxrule=0pt,arc=0pt,left=8pt,top=4pt,bottom=4pt]
+\small\ttfamily
+python scripts/rebuild\_report\_metrics.py \# metrics, figures, results/\\
+python scripts/rebuild\_report\_charts.py \ \ \# tables and number macros\\
+cd report \&\& latexmk -pdf drivebench\_report.tex
+\end{tcolorbox}
+Numbers in the text are macros generated into \texttt{report/numbers.tex}; figures are generated into \texttt{report/figures/}. Nothing is typed by hand.
+
+\begin{thebibliography}{9}\small
+\bibitem{pr2003} G.~Pannocchia, J.~B.~Rawlings, ``Disturbance models for offset-free model predictive control,'' \emph{AIChE J.} 49(2):426--437, 2003.
+\bibitem{rmd2017} J.~B.~Rawlings, D.~Q.~Mayne, M.~Diehl, \emph{Model Predictive Control: Theory, Computation, and Design}, 2nd ed., Nob Hill, 2017.
+\bibitem{am1990} B.~D.~O.~Anderson, J.~B.~Moore, \emph{Optimal Control: Linear Quadratic Methods}, Prentice Hall, 1990.
+\bibitem{ah2006} K.~J.~{\AA}str{\"o}m, T.~H{\"a}gglund, \emph{Advanced PID Control}, ISA, 2006.
+\end{thebibliography}
+
+\end{document}

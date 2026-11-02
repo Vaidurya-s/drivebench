@@ -113,7 +113,7 @@ All metrics (rise time, steady-state error, ITAE, RMS current, energy, motor and
         PMDC motor twin  (L di/dt, J dω/dt, RK4 at 1 ms; controller every 10 ms)
 ```
 
-Plain story: [`docs/EXPLAINER.md`](docs/EXPLAINER.md) · Maths and modelling: [`docs/THEORY.md`](docs/THEORY.md) · Engineering notes: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) · Course write-up: [`report/report.pdf`](report/report.pdf) · source [`report/main.tex`](report/main.tex) · notes [`report/README.md`](report/README.md)
+Plain story: [`docs/EXPLAINER.md`](docs/EXPLAINER.md) · Maths and modelling: [`docs/THEORY.md`](docs/THEORY.md) · Engineering notes: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) · Course write-up: [`report/drivebench_report.pdf`](report/drivebench_report.pdf) · source [`report/drivebench_report.tex`](report/drivebench_report.tex) · notes [`report/README.md`](report/README.md)
 
 The actual plant, the MPC's prediction model, the drive and the measurement model are four separate pieces of code; `docs/THEORY.md` §5 maps them.
 

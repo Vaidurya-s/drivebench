@@ -80,7 +80,8 @@
         "mechanical_energy_j": 40.474351144950184,
         "drive_efficiency": 0.14574236253409617,
         "motor_efficiency": 0.21046658346763855,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.001129333395510912
       },
       "optimized_pid": {
         "rise_time_s": 0.6200000000000001,
@@ -106,7 +107,8 @@
         "mechanical_energy_j": 40.492214751728945,
         "drive_efficiency": 0.14463706548671923,
         "motor_efficiency": 0.2088480900317846,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0010668331136306126
       },
       "lqr": {
         "rise_time_s": 0.5700000000000001,
@@ -132,7 +134,8 @@
         "mechanical_energy_j": 40.57896571807481,
         "drive_efficiency": 0.14309227369725275,
         "motor_efficiency": 0.20646806841303855,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0019458329188637435
       },
       "mpc": {
         "rise_time_s": 0.5700000000000001,
@@ -158,7 +161,8 @@
         "mechanical_energy_j": 40.55501245309472,
         "drive_efficiency": 0.14340983492512552,
         "motor_efficiency": 0.2069667400882499,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.6111238326411694
       }
     },
     "speed_tracking": {
@@ -187,7 +191,8 @@
         "mechanical_energy_j": 244.0453359466279,
         "drive_efficiency": 0.11158297575935223,
         "motor_efficiency": 0.17157140064554494,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0011724004871211946
       },
       "optimized_pid": {
         "rise_time_s": 1.2399999999999984,
@@ -213,7 +218,8 @@
         "mechanical_energy_j": 243.68058501209853,
         "drive_efficiency": 0.11037402360308733,
         "motor_efficiency": 0.17283192384097085,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.001372499653371051
       },
       "lqr": {
         "rise_time_s": 1.2300000000000004,
@@ -239,7 +245,8 @@
         "mechanical_energy_j": 243.8606766314389,
         "drive_efficiency": 0.10978813867531463,
         "motor_efficiency": 0.17252664024202058,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0019925000960938632
       },
       "mpc": {
         "rise_time_s": 0.7599999999999998,
@@ -265,7 +272,8 @@
         "mechanical_energy_j": 249.80342921021887,
         "drive_efficiency": 0.10914763786962406,
         "motor_efficiency": 0.168071851748581,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.6723466499825008
       }
     },
     "load_step": {
@@ -294,7 +302,8 @@
         "mechanical_energy_j": 198.55759651158817,
         "drive_efficiency": 0.16764714922661014,
         "motor_efficiency": 0.17641659883341565,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0011854993742114555
       },
       "optimized_pid": {
         "rise_time_s": null,
@@ -320,7 +329,8 @@
         "mechanical_energy_j": 198.8268652208427,
         "drive_efficiency": 0.16757927409733842,
         "motor_efficiency": 0.17634518412515823,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0011242501689897229
       },
       "lqr": {
         "rise_time_s": null,
@@ -346,7 +356,8 @@
         "mechanical_energy_j": 198.893805965902,
         "drive_efficiency": 0.16756518282412833,
         "motor_efficiency": 0.17633034119557908,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0023234172355538854
       },
       "mpc": {
         "rise_time_s": null,
@@ -372,7 +383,8 @@
         "mechanical_energy_j": 198.87304481687244,
         "drive_efficiency": 0.16756717080528252,
         "motor_efficiency": 0.17633231182734935,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.5056871661508922
       }
     },
     "load_removal": {
@@ -401,7 +413,8 @@
         "mechanical_energy_j": 178.25922409371498,
         "drive_efficiency": 0.15575094535242068,
         "motor_efficiency": 0.16400458450077338,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0010463335396101077
       },
       "optimized_pid": {
         "rise_time_s": null,
@@ -427,7 +440,8 @@
         "mechanical_energy_j": 178.12448637908946,
         "drive_efficiency": 0.15590626838751812,
         "motor_efficiency": 0.16416811817642366,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.001152832992374897
       },
       "lqr": {
         "rise_time_s": null,
@@ -453,7 +467,8 @@
         "mechanical_energy_j": 178.09096059489698,
         "drive_efficiency": 0.15594764035144987,
         "motor_efficiency": 0.16421165906366952,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0021069172847395143
       },
       "mpc": {
         "rise_time_s": null,
@@ -479,7 +494,8 @@
         "mechanical_energy_j": 178.10146151521099,
         "drive_efficiency": 0.15593252270538896,
         "motor_efficiency": 0.16419590815786608,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.4662534997138816
       }
     },
     "voltage_saturation": {
@@ -508,7 +524,8 @@
         "mechanical_energy_j": 248.0917904074115,
         "drive_efficiency": 0.08971493101979705,
         "motor_efficiency": 0.13783658116097414,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0012694286332199617
       },
       "optimized_pid": {
         "rise_time_s": 2.4599999999999995,
@@ -534,7 +551,8 @@
         "mechanical_energy_j": 248.01123170654918,
         "drive_efficiency": 0.08964519501345859,
         "motor_efficiency": 0.1377532293510291,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0010712136697423244
       },
       "lqr": {
         "rise_time_s": 2.4599999999999995,
@@ -560,7 +578,8 @@
         "mechanical_energy_j": 248.11351037607477,
         "drive_efficiency": 0.08954852981082878,
         "motor_efficiency": 0.1375805674739161,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0022106433087693794
       },
       "mpc": {
         "rise_time_s": 2.04,
@@ -586,7 +605,8 @@
         "mechanical_energy_j": 254.05662647515652,
         "drive_efficiency": 0.08882607666732181,
         "motor_efficiency": 0.13502979021136255,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 1.035908143551621
       }
     },
     "current_protection": {
@@ -615,7 +635,8 @@
         "mechanical_energy_j": 405.4260910912648,
         "drive_efficiency": 0.17590767472131583,
         "motor_efficiency": 0.2221063131354289,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0012146665540058166
       },
       "optimized_pid": {
         "rise_time_s": 2.91,
@@ -641,7 +662,8 @@
         "mechanical_energy_j": 406.0045106030161,
         "drive_efficiency": 0.17581401558567678,
         "motor_efficiency": 0.22196169431228727,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.001094500282003234
       },
       "lqr": {
         "rise_time_s": 2.91,
@@ -667,7 +689,8 @@
         "mechanical_energy_j": 406.3000836903519,
         "drive_efficiency": 0.17575879347025125,
         "motor_efficiency": 0.22187614210151138,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.001980666032371422
       },
       "mpc": {
         "rise_time_s": 2.91,
@@ -693,7 +716,8 @@
         "mechanical_energy_j": 406.13954293468436,
         "drive_efficiency": 0.1757850527374455,
         "motor_efficiency": 0.22191724611742444,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.8437655834131874
       }
     },
     "model_mismatch": {
@@ -722,7 +746,8 @@
         "mechanical_energy_j": 229.27679479649606,
         "drive_efficiency": 0.10647203513944047,
         "motor_efficiency": 0.14910260975160908,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0012149285508452781
       },
       "optimized_pid": {
         "rise_time_s": 2.1900000000000004,
@@ -748,7 +773,8 @@
         "mechanical_energy_j": 229.26183767538436,
         "drive_efficiency": 0.10647769410807974,
         "motor_efficiency": 0.14911481449830352,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0011694995919242501
       },
       "lqr": {
         "rise_time_s": 2.1900000000000004,
@@ -774,7 +800,8 @@
         "mechanical_energy_j": 229.33779260100354,
         "drive_efficiency": 0.10640307876234487,
         "motor_efficiency": 0.1489946289225526,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0021912138825947686
       },
       "mpc": {
         "rise_time_s": 1.7599999999999998,
@@ -800,7 +827,8 @@
         "mechanical_energy_j": 232.42621773144106,
         "drive_efficiency": 0.10518543574385082,
         "motor_efficiency": 0.14664602407353344,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.9609963573997707
       }
     },
     "sensor_noise": {
@@ -829,7 +857,8 @@
         "mechanical_energy_j": 81.06086599292506,
         "drive_efficiency": 0.1487262948400453,
         "motor_efficiency": 0.18823878981430822,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0010889996192418039
       },
       "optimized_pid": {
         "rise_time_s": 0.5,
@@ -855,7 +884,8 @@
         "mechanical_energy_j": 80.91636647462,
         "drive_efficiency": 0.1486226567244346,
         "motor_efficiency": 0.18792953889183223,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0011520003317855299
       },
       "lqr": {
         "rise_time_s": 0.39000000000000057,
@@ -881,7 +911,8 @@
         "mechanical_energy_j": 80.9176607348099,
         "drive_efficiency": 0.15015563732414916,
         "motor_efficiency": 0.2324832172794816,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0022041997290216386
       },
       "mpc": {
         "rise_time_s": 0.20999999999999996,
@@ -907,7 +938,8 @@
         "mechanical_energy_j": 81.48370219954185,
         "drive_efficiency": 0.14747540728642966,
         "motor_efficiency": 0.18611807166471572,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 1.3403390009771101
       }
     },
     "variable_load": {
@@ -936,7 +968,8 @@
         "mechanical_energy_j": 130.91987527757732,
         "drive_efficiency": 0.1832657238049176,
         "motor_efficiency": 0.19335003961895128,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0014204160349133115
       },
       "optimized_pid": {
         "rise_time_s": null,
@@ -962,7 +995,8 @@
         "mechanical_energy_j": 130.91068196884052,
         "drive_efficiency": 0.1839917455801089,
         "motor_efficiency": 0.19337491163653953,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.001299082408271109
       },
       "lqr": {
         "rise_time_s": null,
@@ -988,7 +1022,8 @@
         "mechanical_energy_j": 131.22915524290866,
         "drive_efficiency": 0.18430050339573437,
         "motor_efficiency": 0.1939067187105287,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.002200917078880593
       },
       "mpc": {
         "rise_time_s": null,
@@ -1014,7 +1049,8 @@
         "mechanical_energy_j": 131.10598916717953,
         "drive_efficiency": 0.18420782258986654,
         "motor_efficiency": 0.1936928148322302,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 1.0931540008459706
       }
     },
     "reverse_operation": {
@@ -1043,7 +1079,8 @@
         "mechanical_energy_j": 9.421165616273358,
         "drive_efficiency": 0.10617850045780353,
         "motor_efficiency": 0.16352851599116158,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.001050642500298896
       },
       "optimized_pid": {
         "rise_time_s": 0.9800000000000004,
@@ -1069,7 +1106,8 @@
         "mechanical_energy_j": 9.419431800235643,
         "drive_efficiency": 0.1047048264609223,
         "motor_efficiency": 0.16170743779708963,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.001230786063907934
       },
       "lqr": {
         "rise_time_s": 0.9800000000000004,
@@ -1095,7 +1133,8 @@
         "mechanical_energy_j": 9.390410164586502,
         "drive_efficiency": 0.1028250579238595,
         "motor_efficiency": 0.16200448204017825,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.0022500005434267223
       },
       "mpc": {
         "rise_time_s": 0.4900000000000002,
@@ -1121,7 +1160,8 @@
         "mechanical_energy_j": 9.872876392559006,
         "drive_efficiency": 0.10486323791909563,
         "motor_efficiency": 0.16321087032553797,
-        "constraint_violation_steps": 0
+        "constraint_violation_steps": 0,
+        "exec_ms_mean": 0.6446715714160486
       }
     },
     "model_mismatch_low": {
@@ -1150,7 +1190,8 @@
         "mechanical_energy_j": 207.7472655916856,
         "drive_efficiency": 0.20605021370921353,
         "motor_efficiency": 0.25440350129591277,
-        "constraint_violation_steps": 15
+        "constraint_violation_steps": 15,
+        "exec_ms_mean": 0.0011219282584664012
       },
       "optimized_pid": {
         "rise_time_s": 0.6099999999999999,
@@ -1176,7 +1217,8 @@
         "mechanical_energy_j": 208.5570013298104,
         "drive_efficiency": 0.2049109907380238,
         "motor_efficiency": 0.25283392469079347,
-        "constraint_violation_steps": 35
+        "constraint_violation_steps": 35,
+        "exec_ms_mean": 0.0011322145499954267
       },
       "lqr": {
         "rise_time_s": 0.4700000000000002,
@@ -1202,7 +1244,8 @@
         "mechanical_energy_j": 209.0893309463303,
         "drive_efficiency": 0.20358358658287984,
         "motor_efficiency": 0.25109580974102247,
-        "constraint_violation_steps": 65
+        "constraint_violation_steps": 65,
+        "exec_ms_mean": 0.0021384278079494834
       },
       "mpc": {
         "rise_time_s": 0.20000000000000018,
@@ -1228,7 +1271,8 @@
         "mechanical_energy_j": 210.95491419498006,
         "drive_efficiency": 0.20341983796583238,
         "motor_efficiency": 0.2505028316191391,
-        "constraint_violation_steps": 10
+        "constraint_violation_steps": 10,
+        "exec_ms_mean": 0.7913795710192062
       }
     }
   },
@@ -1332,5 +1376,5 @@
     },
     "note": "Frozen gains were tuned on the nominal motor; the retuned gains saw the mismatched plant during tuning."
   },
-  "runtime_s": 150.1526223999681
+  "runtime_s": 38.99745670001721
 }

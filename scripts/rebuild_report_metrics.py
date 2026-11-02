@@ -5,7 +5,7 @@ Run from the repository root after ``pip install -e ".[dev]"``::
 
     python3 scripts/rebuild_report_metrics.py
 
-Writes ``report/metrics_summary.json`` and ``report/figures/<scenario>.png``, and
+Writes ``report/metrics_summary.json`` and the report figures (``scripts/report_figures.py``), and
 syncs ``results/metrics_summary.json`` plus ``results/<scenario>.png``.
 Numbers in the report come only from this script; never edit them by hand.
 """
@@ -16,6 +16,9 @@ import json
 import time
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import report_figures  # noqa: E402
 from mpc_core.sim.batch import BatchItem, run_batch, summary_dict
 from mpc_core.sim.config import default_demo_config
 from mpc_core.sim.pid_tune import tune_pid_gains
@@ -37,18 +40,16 @@ def main() -> None:
     t_start = time.perf_counter()
 
     def figures(item: BatchItem, t: ControllerRuns) -> None:
-        for folder in (FIG, RESULTS):
-            save_runs_figure(
-                title=item.title, runs=t.runs, path=folder / f"{item.key}.png",
-            )
+        # Per-scenario overview PNGs go to results/ (the report builds its own figures).
+        save_runs_figure(title=item.title, runs=t.runs, path=RESULTS / f"{item.key}.png")
         print(
-            f"{item.key}: IAE pid/opt/lqr/mpc = "
-            + "/".join(f"{t[c].metrics.iae:.0f}" for c in t),
+            f"{item.key}: IAE pid/opt/lqr/mpc = " + "/".join(f"{t[c].metrics.iae:.0f}" for c in t),
             flush=True,
         )
 
     results, tune = run_batch(cfg, on_result=figures)
     summary = summary_dict(results, tune, cfg)
+    report_figures.build_all({k: dict(v.runs) for k, v in results.items()})
 
     # Robustness: gains frozen on the nominal motor vs gains retuned on the mismatched plant.
     print("=== robustness ===", flush=True)

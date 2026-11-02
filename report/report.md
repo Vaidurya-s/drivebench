@@ -86,8 +86,8 @@ Observations:
    for MPC and 1676 for LQR.
 6. **Execution time.** LQR and PID take about 0.01 ms per sample; MPC takes about 3–6 ms.
 
-Figures are in [`figures/`](figures/): per-scenario traces (`<scenario>.png`), `iae_bars.png`,
-`current_limit_bars.png`, `robustness_bars.png`, `architecture.png`.
+The full technical report is [`drivebench_report.pdf`](drivebench_report.pdf); its figures are in
+[`figures/`](figures/).
 
 ## 5. Limitations
 

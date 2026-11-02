@@ -88,7 +88,13 @@ def summary_dict(
         "scenarios": {
             key: {
                 "title": titles[key],
-                **{cid: t[cid].metrics.as_dict() for cid in CONTROLLER_IDS},
+                **{
+                    cid: {
+                        **t[cid].metrics.as_dict(),
+                        "exec_ms_mean": (None if t[cid].exec_ms is None else float(t[cid].exec_ms.mean())),
+                    }
+                    for cid in CONTROLLER_IDS
+                },
             }
             for key, t in results.items()
         },

@@ -55,13 +55,14 @@ with n3:
         st.session_state.mpc_step_idx = scrub - 1
         st.rerun()
 
-c = st.columns(6)
-c[0].metric("Time", f"{snap.time_s:.2f} s")
-c[1].metric("Measured speed", f"{snap.y_meas:.0f} RPM")
-c[2].metric("Armature current", f"{snap.i_a:.2f} A")
-c[3].metric("Planned voltage now", f"{snap.u_applied:.2f} V")
-c[4].metric("Load estimate", f"{snap.d_hat:.3f} N·m")
-c[5].metric("Solve time", f"{snap.solve_ms:.2f} ms")
+r1 = st.columns(3)
+r1[0].metric("Time", f"{snap.time_s:.2f} s")
+r1[1].metric("Measured speed", f"{snap.y_meas:.0f} RPM")
+r1[2].metric("Armature current", f"{snap.i_a:.2f} A")
+r2 = st.columns(3)
+r2[0].metric("Planned voltage now", f"{snap.u_applied:.2f} V")
+r2[1].metric("Load estimate", f"{snap.d_hat:.3f} N·m")
+r2[2].metric("Solve time", f"{snap.solve_ms:.2f} ms")
 
 st.markdown("**Active constraints at this step**")
 constraint_chips(snap.active_constraints)

@@ -20,7 +20,7 @@ python3 -m pytest tests/test_drive.py::test_estop_forces_zero_and_latches -q
 python3 examples/run_simulations.py         # all scenarios -> results/
 python3 scripts/precompute_ui_data.py       # data/ui/*.json + frozen optimised-PID gains (~10 min)
 python3 scripts/rebuild_report_metrics.py   # report/metrics_summary.json + figures
-python3 scripts/rebuild_report_charts.py    # report bar charts / architecture figure
+python3 scripts/rebuild_report_charts.py    # report tables and number macros (numbers.tex)
 streamlit run app.py
 ```
 
