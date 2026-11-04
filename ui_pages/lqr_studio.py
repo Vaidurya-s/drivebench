@@ -110,14 +110,14 @@ with a:
     st.dataframe(
         pd.DataFrame(design.K, columns=["K_i [V/A]", "K_ω [V/(rad/s)]", "K_ξ [V/rad]"]).style.format("{:.4g}"),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
     )
     st.markdown("**Q (normalised units) and R**")
     st.code(np.array2string(design.Q, precision=3) + "\nR = " + np.array2string(design.R, precision=3), language="text")
     st.markdown("**Riccati solution P**")
     st.code(np.array2string(design.P, precision=3), language="text")
 with b:
-    st.plotly_chart(pole_figure(design.eigenvalues), use_container_width=True)
+    st.plotly_chart(pole_figure(design.eigenvalues), width="stretch")
     poles_s = ", ".join(f"{(np.log(z) / cfg.dt_s).real:.1f}" for z in design.eigenvalues)
     st.caption(f"Equivalent continuous poles s = ln(z)/Ts: {poles_s} 1/s")
 
@@ -133,7 +133,7 @@ fig.update_yaxes(title_text="Speed [RPM]")
 fig.update_xaxes(title_text="Time [s]")
 fig.update_layout(**chart_layout("Startup step response", height=320))
 style_axes(fig)
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 fig2 = go.Figure()
 fig2.add_trace(go.Scatter(x=run.time_s, y=run.v_cmd, name="Requested",
                           line=dict(color=T.CONTROLLER_COLORS["lqr"], width=1.5, dash="dot")))
@@ -143,7 +143,7 @@ fig2.update_yaxes(title_text="Voltage [V]")
 fig2.update_xaxes(title_text="Time [s]")
 fig2.update_layout(**chart_layout("Armature voltage", height=280))
 style_axes(fig2)
-st.plotly_chart(fig2, use_container_width=True)
+st.plotly_chart(fig2, width="stretch")
 mm = run.metrics
 settle = "did not settle" if mm.settling_time_s is None else f"settles in {mm.settling_time_s:.2f} s"
 st.caption(

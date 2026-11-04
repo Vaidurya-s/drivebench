@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import path_setup  # noqa: F401
 import streamlit as st
-import streamlit.components.v1 as components
 
 from mpc_core.sim import theme as T
 from mpc_core.sim.config import default_demo_config

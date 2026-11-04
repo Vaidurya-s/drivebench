@@ -8,7 +8,6 @@ import path_setup  # noqa: F401
 import numpy as np
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 from mpc_core.sim import theme as T
 from mpc_core.sim.config import default_demo_config
@@ -45,7 +44,7 @@ PRESET_LABELS = {
 
 pcols = st.columns(len(PRESET_LABELS) + 1)
 for col, (key, label) in zip(pcols, PRESET_LABELS.items()):
-    if col.button(label, use_container_width=True, key=f"preset_{key}"):
+    if col.button(label, width="stretch", key=f"preset_{key}"):
         mo: PMDCParams = st.session_state.motor_params
         old: PlaygroundParams = st.session_state.playground_params
         base = PlaygroundParams(
@@ -56,7 +55,7 @@ for col, (key, label) in zip(pcols, PRESET_LABELS.items()):
         st.session_state.playground_params = PRESETS[key](base)
         st.session_state.preset_name = key
         st.rerun()
-if pcols[-1].button("Reset", use_container_width=True):
+if pcols[-1].button("Reset", width="stretch"):
     st.session_state.playground_params = PlaygroundParams()
     st.session_state.motor_params = DEFAULT_MOTOR
     st.session_state.retune_pid = False
@@ -128,7 +127,7 @@ with rail:
             st.caption("LQR weights are set in the LQR Design Studio.")
         with st.expander("7 · Simulation options", expanded=False):
             duration = st.slider("Duration [s]", 6.0, 20.0, float(p.duration_s), 1.0, key=f"dur_{pk}")
-        submitted = st.form_submit_button("Run experiment", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("Run experiment", type="primary", width="stretch")
 
     if submitted:
         st.session_state.playground_params = replace(
@@ -167,8 +166,8 @@ with rail:
                 "omega_max_rpm": num("Max speed [RPM]", "omega_max_rpm", "%.0f", 100.0),
             }
             retune = st.checkbox("Retune optimised PID for this motor (slower)", value=st.session_state.retune_pid, key="m_retune")
-            apply_motor = st.form_submit_button("Apply motor", use_container_width=True)
-        if st.button("Restore defaults", use_container_width=True):
+            apply_motor = st.form_submit_button("Apply motor", width="stretch")
+        if st.button("Restore defaults", width="stretch"):
             st.session_state.motor_params = DEFAULT_MOTOR
             st.session_state.retune_pid = False
             for k in [k for k in st.session_state if str(k).startswith("m_")]:
@@ -199,17 +198,17 @@ runs = selected_runs(runs_all, ids)
 with work:
     controller_legend(tuple(runs))
     st.plotly_chart(quantity_figure(runs, "speed", events=events_for(params), ts_s=cfg.dt_s),
-                    use_container_width=True)
+                    width="stretch")
     readout_tiles(readouts(runs_all, list(runs)))
 
     tabs = st.tabs(["Armature current", "Drive voltage", "Torque", "Power & energy", "Requested vs applied"])
     for tab, q in zip(tabs[:4], ("current", "voltage", "torque", "power")):
         with tab:
             st.plotly_chart(quantity_figure(runs, q, events=events_for(params), ts_s=cfg.dt_s),
-                            use_container_width=True)
+                            width="stretch")
     with tabs[4]:
         pick_v = st.selectbox("Controller", list(runs), format_func=T.CONTROLLER_LABELS.get, key="rva_pick")
-        st.plotly_chart(requested_vs_applied_figure(runs[pick_v], T.CONTROLLER_LABELS[pick_v]), use_container_width=True)
+        st.plotly_chart(requested_vs_applied_figure(runs[pick_v], T.CONTROLLER_LABELS[pick_v]), width="stretch")
 
     st.markdown("##### Key metrics")
     rows = []
@@ -228,12 +227,12 @@ with work:
             {"Rise [s]": "{:.2f}", "Settling [s]": "{:.2f}", "Overshoot [%]": "{:.1f}",
              "IAE [RPM·s]": "{:.0f}", "Max current [A]": "{:.2f}", "Voltage sat. [s]": "{:.2f}",
              "Energy [J]": "{:.0f}", "Drive eff.": "{:.2f}", "Mean exec [ms]": "{:.3f}"}, na_rep="—"),
-        use_container_width=True, hide_index=True)
+        width="stretch", hide_index=True)
 
     st.markdown("##### Motor view")
     pick = st.radio("Motor view controller", list(runs), horizontal=True,
                     format_func=T.CONTROLLER_LABELS.get, label_visibility="collapsed")
-    components.html(motor_animation_html(runs[pick], title=f"{T.CONTROLLER_LABELS[pick]} · shaft replay"), height=470)
+    st.iframe(motor_animation_html(runs[pick], title=f"{T.CONTROLLER_LABELS[pick]} · shaft replay"), height=470)
     st.caption(BENCH_CAPTION)
     tg = runs_all.tune.gains
     st.caption(f"Optimised PID gains: Kp = {tg.kp:.3g} V/RPM, Ki = {tg.ki:.3g}, Kd = {tg.kd:.3g}. "

@@ -62,7 +62,7 @@ rows = [
     ("Voltage slew limit", f"{cfg.drive.slew_v_per_s:g}", "V/s"),
     ("Controller period Ts / plant step", f"{cfg.dt_s * 1e3:g} / {cfg.plant_dt_s * 1e3:g}", "ms"),
 ]
-st.dataframe(pd.DataFrame(rows, columns=["Parameter", "Value", "Unit"]), hide_index=True, use_container_width=True)
+st.dataframe(pd.DataFrame(rows, columns=["Parameter", "Value", "Unit"]), hide_index=True, width="stretch")
 
 st.markdown("#### Plant, prediction model, drive and measurement")
 a, b = st.columns(2)

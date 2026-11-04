@@ -23,7 +23,7 @@ def _decimate(a: np.ndarray, idx: np.ndarray) -> list[float]:
 
 
 def motor_animation_html(run: SimulationResult, *, title: str, height: int = 360) -> str:
-    """HTML document for ``st.components.v1.html`` replaying ``run``."""
+    """HTML document for ``st.iframe`` replaying ``run``."""
     n = len(run.time_s)
     idx = np.unique(np.linspace(0, n - 1, min(n, MAX_POINTS)).astype(int))
     data = {

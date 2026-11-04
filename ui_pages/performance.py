@@ -60,16 +60,16 @@ for tab, (_, charts) in zip(tabs, groups.items()):
                 vals = {c: [float(sub.loc[c, col_name]) if pd.notna(sub.loc[c, col_name]) else 0.0] for c in order}
                 st.plotly_chart(
                     grouped_metrics_figure(vals, [title], title=f"{title} [{unit}]", y_title=unit, height=300),
-                    use_container_width=True,
+                    width="stretch",
                 )
 st.caption("A missing settling time means the speed never stayed inside the 2 % band (drawn as 0).")
 
 st.markdown("##### All metrics for this scenario")
 detail = sub.loc[order].drop(columns=["Scenario", "Controller"]).T
 detail.columns = [T.CONTROLLER_LABELS[c] for c in order]
-st.dataframe(detail.style.format("{:.3g}", na_rep="—"), use_container_width=True)
+st.dataframe(detail.style.format("{:.3g}", na_rep="—"), width="stretch")
 
 st.markdown("##### One metric across scenarios")
 metric = st.selectbox("Metric", [c for c in df.columns if c not in ("Scenario", "Controller", "cid")])
 pivot = df.pivot(index="Scenario", columns="Controller", values=metric)
-st.dataframe(pivot.style.format("{:.3g}", na_rep="—"), use_container_width=True)
+st.dataframe(pivot.style.format("{:.3g}", na_rep="—"), width="stretch")

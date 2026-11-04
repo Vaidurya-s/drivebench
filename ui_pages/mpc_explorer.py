@@ -43,10 +43,10 @@ idx = max(0, min(st.session_state.get("mpc_step_idx", 0), len(log.snapshots) - 1
 snap = log.snapshots[idx]
 
 n1, n2, n3 = st.columns([1, 1, 3])
-if n1.button("Previous", disabled=idx <= 0, use_container_width=True):
+if n1.button("Previous", disabled=idx <= 0, width="stretch"):
     st.session_state.mpc_step_idx = idx - 1
     st.rerun()
-if n2.button("Next", type="primary", disabled=idx >= len(log.snapshots) - 1, use_container_width=True):
+if n2.button("Next", type="primary", disabled=idx >= len(log.snapshots) - 1, width="stretch"):
     st.session_state.mpc_step_idx = idx + 1
     st.rerun()
 with n3:
@@ -69,7 +69,7 @@ constraint_chips(snap.active_constraints)
 st.info(snap.caption)
 st.plotly_chart(
     mpc_explorer_figure(snap, ts_s=cfg.dt_s, i_max=cfg.drive.I_max, v_max=cfg.drive.V_max),
-    use_container_width=True,
+    width="stretch",
 )
 panel(
     "Receding horizon",
